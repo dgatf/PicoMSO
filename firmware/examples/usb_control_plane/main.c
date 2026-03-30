@@ -30,15 +30,16 @@
  *
  * Data-plane command handled: READ_DATA_BLOCK.
  *   The host sends READ_DATA_BLOCK as a vendor OUT control transfer on EP0.
- *   The device responds with a DATA_BLOCK response (msg_type 0x82) carrying
- *   a 64-byte dummy ramp payload over the EP6 IN bulk endpoint.
- *   No real capture hardware (ADC, PIO, DMA) is used.
+ *   In logic mode the device performs a one-shot logic capture on GPIO 0..15:
+ *   the capture is armed by SET_MODE(LOGIC), pre-trigger samples are retained
+ *   in a circular buffer, a rising edge on GPIO 0 finalizes the trigger point,
+ *   and the finalized 64-byte block is returned over the EP6 IN bulk endpoint.
  *
  * Out of scope for this example:
- *   - Real capture data (ADC / PIO / DMA)
- *   - Logic-analyzer or oscilloscope firmware
+ *   - Oscilloscope capture
+ *   - Shared logic/scope abstractions beyond this logic path
  *   - SUMP protocol
- *   - Streaming (one block per request only)
+ *   - Streaming beyond one finalized capture block
  *
  * Wire path (control-plane commands):
  *   Host (vendor OUT control transfer on EP0)
@@ -54,7 +55,12 @@
  *     → usb_transport_iface.receive()
  *     → integration_process_one()
  *     → picomso_dispatch()
- *     → picomso_handle_read_data_block()  (builds 64-byte ramp payload)
+ *     → picomso_handle_read_data_block()
+ *       → logic_capture_read_block()
+ *         → arm-state pre-trigger ring
+ *         → trigger detect on GPIO 0
+ *         → finite post-trigger sampling
+ *         → finalized 64-byte one-shot block
  *     → usb_transport_iface.send()  (EP6 IN bulk transfer, DATA_BLOCK = 0x82)
  *   → Host
  */
@@ -110,10 +116,9 @@ int main(void)
      * application would add sleep_ms() or use interrupt-driven signalling
      * to yield the CPU while idle.
      *
-     * READ_DATA_BLOCK is handled transparently: the protocol layer builds
-     * a DATA_BLOCK response (msg_type 0x82) with a 64-byte dummy ramp
-     * payload, and integration_process_one() sends it over EP6 IN bulk.
-     * No ADC, PIO, or DMA is started; the payload is a placeholder only.
+     * READ_DATA_BLOCK is handled transparently: in logic mode the protocol
+     * layer asks the logic capture backend to finalize one armed capture,
+     * then sends the resulting 64-byte sample block over EP6 IN bulk.
      */
     while (true) {
         integration_process_one(&integration);

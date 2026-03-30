@@ -17,7 +17,7 @@
  */
 
 /*
- * PicoMSO unified protocol – per-command handler implementations (Phase 0).
+ * PicoMSO unified protocol – per-command handler implementations.
  *
  * Each function in this file handles one message type.  Handlers build
  * a response packet into the supplied picomso_response_t buffer and
@@ -27,12 +27,14 @@
  * instance so that the protocol layer reflects real capture mode/state.
  * GET_INFO and GET_CAPABILITIES continue to return static values.
  *
- * No dependency on any transport (USB, UART, …), PIO, ADC, or DMA.
+ * The handlers remain transport-agnostic. The only concrete capture dependency
+ * is the logic-analyzer backend used by READ_DATA_BLOCK.
  */
 
 #include "protocol.h"
 #include "protocol_packets.h"
 #include "capture_controller.h"
+#include "logic_capture.h"
 
 #include <string.h>
 
@@ -53,9 +55,10 @@
 /* -----------------------------------------------------------------------
  * Module-level capture controller instance.
  *
- * The protocol layer owns control-plane state only.  Starts in
- * CAPTURE_MODE_UNSET / CAPTURE_IDLE.  No hardware is accessed;
- * SET_MODE and GET_STATUS operate on this struct alone.
+ * The protocol layer owns the control-plane state store and delegates the
+ * concrete logic-analyzer data path to firmware/mixed_signal/logic_capture.c.
+ *
+ * Starts in CAPTURE_MODE_UNSET / CAPTURE_IDLE.
  * ----------------------------------------------------------------------- */
 
 static capture_controller_t s_capture_ctrl = {
@@ -148,6 +151,10 @@ picomso_status_t picomso_handle_get_status(const picomso_packet_header_t *hdr,
 {
     (void)payload; /* GET_STATUS carries no request payload */
 
+    if (capture_controller_get_mode(&s_capture_ctrl) == CAPTURE_MODE_LOGIC) {
+        capture_controller_set_state(&s_capture_ctrl, logic_capture_get_state());
+    }
+
     picomso_status_response_t status;
     status.mode          = (uint8_t)capture_controller_get_mode(&s_capture_ctrl);
     status.capture_state = (uint8_t)capture_controller_get_state(&s_capture_ctrl);
@@ -176,8 +183,22 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
 
     switch ((picomso_device_mode_t)req.mode) {
         case PICOMSO_MODE_UNSET:
+            logic_capture_reset();
+            capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
+            capture_controller_set_mode(&s_capture_ctrl, (capture_mode_t)req.mode);
+            picomso_write_ack(hdr->seq, resp);
+            return PICOMSO_STATUS_OK;
+
         case PICOMSO_MODE_LOGIC:
+            logic_capture_arm();
+            capture_controller_set_state(&s_capture_ctrl, logic_capture_get_state());
+            capture_controller_set_mode(&s_capture_ctrl, (capture_mode_t)req.mode);
+            picomso_write_ack(hdr->seq, resp);
+            return PICOMSO_STATUS_OK;
+
         case PICOMSO_MODE_OSCILLOSCOPE:
+            logic_capture_reset();
+            capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
             capture_controller_set_mode(&s_capture_ctrl, (capture_mode_t)req.mode);
             picomso_write_ack(hdr->seq, resp);
             return PICOMSO_STATUS_OK;
@@ -192,18 +213,16 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
 /* -----------------------------------------------------------------------
  * READ_DATA_BLOCK handler
  *
- * Returns one fixed dummy data block via PICOMSO_MSG_DATA_BLOCK.
+ * Returns one finalized logic-analyzer data block via PICOMSO_MSG_DATA_BLOCK.
  *
- * The payload is a 64-byte ramp pattern (bytes 0x00..0x3F) stored as a
- * compile-time constant array.  No real capture hardware (ADC, PIO, DMA)
- * is involved.  The block_id field increments with each successful call
- * so that the host can detect dropped or repeated blocks.
+ * The block is captured lazily from GPIO 0..15 when the logic mode has been
+ * armed via SET_MODE(LOGIC): 16 pre-trigger samples are held in a circular
+ * ring, a rising edge on GPIO 0 finalizes the trigger point, and 15 more
+ * post-trigger samples are appended for a one-shot 64-byte upload.
  *
  * Thread-safety: this handler, like all handlers in this file, assumes a
  * single-threaded polling context (the main loop in usb_control_plane/main.c).
  * No locking is applied.
- *
- * This is Phase 1 data-plane: dummy/sample payload only.
  * ----------------------------------------------------------------------- */
 
 picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *hdr,
@@ -211,26 +230,20 @@ picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *h
                                                 picomso_response_t            *resp)
 {
     (void)payload; /* READ_DATA_BLOCK carries no request payload */
-
-    /* Fixed ramp pattern: 0x00, 0x01, …, 0x3F.
-     * Initialised once; copied into each response block. */
-    static const uint8_t s_ramp[PICOMSO_DATA_BLOCK_SIZE] = {
-        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
-        0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
-        0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
-        0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
-        0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
-    };
-
-    static uint8_t s_block_id = 0u;
+    if (capture_controller_get_mode(&s_capture_ctrl) != CAPTURE_MODE_LOGIC) {
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE,
+                            "logic mode not active", resp);
+        return PICOMSO_STATUS_ERR_BAD_MODE;
+    }
 
     picomso_data_block_response_t blk;
-    blk.block_id = s_block_id++;
-    blk.data_len = (uint16_t)PICOMSO_DATA_BLOCK_SIZE;
-    memcpy(blk.data, s_ramp, PICOMSO_DATA_BLOCK_SIZE);
+    if (!logic_capture_read_block(&blk.block_id, blk.data, &blk.data_len)) {
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN,
+                            "logic capture not armed", resp);
+        return PICOMSO_STATUS_ERR_UNKNOWN;
+    }
+
+    capture_controller_set_state(&s_capture_ctrl, logic_capture_get_state());
 
     build_response(hdr, PICOMSO_MSG_DATA_BLOCK,
                    &blk, (uint16_t)sizeof(blk), resp);

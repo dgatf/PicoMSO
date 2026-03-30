@@ -28,7 +28,7 @@ PICOMSO_MSG_READ_DATA_BLOCK = 0x05
 # Response types used by firmware
 PICOMSO_MSG_ACK = 0x80         # Adjust if protocol.h says otherwise
 PICOMSO_MSG_ERROR = 0x81       # Adjust if protocol.h says otherwise
-PICOMSO_MSG_DATA_BLOCK = 0x06  # Adjust if protocol.h says otherwise
+PICOMSO_MSG_DATA_BLOCK = 0x82
 
 # IMPORTANT:
 # These two values should match protocol.h exactly.
@@ -191,12 +191,9 @@ def read_data_block(dev):
 
         print(f"Decoded DATA_BLOCK: block_id={block_id} data_len={data_len}")
         print("Data bytes:", list(data))
-
-        expected = bytes(range(min(data_len, 64)))
-        if data[:len(expected)] == expected:
-            print("Ramp pattern OK (0x00..)")
-        else:
-            print("Ramp pattern does NOT match expected dummy payload")
+        print("Interpreted logic samples (little-endian uint16):")
+        words = [struct.unpack_from("<H", data, offset)[0] for offset in range(0, len(data) - (len(data) % 2), 2)]
+        print(words)
 
 
 def main():

@@ -184,9 +184,9 @@ if the mode value is not one of the defined values.
 
 **Effect on capture_controller:** A successful `SET_MODE` calls
 `capture_controller_set_mode()` on the protocol layer's internal
-`capture_controller_t` instance.  The new mode is immediately visible to
-subsequent `GET_STATUS` requests.  The command does **not** start or stop
-any capture hardware; real capture initiation is deferred to a future phase.
+`capture_controller_t` instance. In logic mode it also arms the concrete
+logic-capture backend, so subsequent `GET_STATUS` requests report
+`CAPTURE_RUNNING` until one capture is finalized and uploaded.
 
 ---
 
@@ -201,14 +201,15 @@ any capture hardware; real capture initiation is deferred to a future phase.
 
 | Offset      | Size        | Field      | Description                                  |
 |-------------|-------------|------------|----------------------------------------------|
-| 0           | 1           | `block_id` | Monotonically incrementing block counter     |
-| 1           | 2           | `data_len` | Byte count of the data bytes that follow     |
-| 3           | `data_len`  | `data`     | Raw sample bytes (dummy ramp in this phase)  |
+| 0           | 1           | `block_id` | Monotonically incrementing capture block counter |
+| 1           | 2           | `data_len` | Byte count of the data bytes that follow         |
+| 3           | `data_len`  | `data`     | Raw GPIO sample bytes                            |
 
-**Dummy payload (Phase 1):**  The device returns a fixed 64-byte ramp pattern
-(`0x00, 0x01, …, 0x3F`).  `block_id` increments by one on each response.
-**No real capture hardware is involved.**  This payload is a placeholder to
-exercise the control-plane → BULK IN data path end-to-end.
+**Logic payload:** In logic mode the device returns one finalized 64-byte
+one-shot capture block. The capture is armed by `SET_MODE(LOGIC)`, stores
+16 pre-trigger samples in a circular ring, triggers on a rising edge on
+GPIO 0, then appends 15 post-trigger samples. Each sample is a little-endian
+16-bit snapshot of GPIO 0..15.
 
 **Transport note:**  The request arrives as a vendor OUT control transfer on
 EP0.  The DATA_BLOCK response is sent over EP6 IN (BULK IN), establishing the
@@ -223,17 +224,13 @@ The protocol implementation handles all defined commands through both the dummy
 transport (testing) and the real USB transport backend
 (`firmware/transport/usb/`).  The following constraints still apply:
 
-- **Dummy data only.**  `READ_DATA_BLOCK` returns a fixed 64-byte ramp pattern.
-  No ADC, PIO, or DMA operation is triggered.  Real capture hardware integration
-  is deferred to a future phase.
+- **Logic capture only.** `READ_DATA_BLOCK` returns one real 64-byte logic
+  capture block from GPIO 0..15. Oscilloscope capture is still out of scope.
 - **No streaming.**  One block is returned per explicit `READ_DATA_BLOCK`
   request.  Continuous streaming is out of scope.
-- **No real capture start/stop.**  `SET_MODE` updates the mode tracked by
-  `capture_controller_t` only.  No ADC, PIO, or DMA operation is triggered.
-- **Capture state is always `IDLE`.**  The `capture_state` field in
-  `GET_STATUS` responses reflects `capture_controller_t.state`, which
-  remains `CAPTURE_IDLE` because nothing in this phase sets it to
-  `CAPTURE_RUNNING`.
+- **Logic re-arm is explicit.** `SET_MODE(LOGIC)` arms a new capture. Repeated
+  `READ_DATA_BLOCK` requests return the same finalized block until logic mode
+  is armed again.
 - **Static capabilities.**  `GET_CAPABILITIES` always returns
   `PICOMSO_CAP_LOGIC | PICOMSO_CAP_SCOPE` regardless of the connected
   hardware.
@@ -288,13 +285,16 @@ Host (vendor OUT control transfer on EP0, msg_type = 0x05)
            → integration_process_one()
            → transport_receive()
            → picomso_dispatch()
-           → picomso_handle_read_data_block()
-               builds 64-byte ramp in picomso_data_block_response_t
-               (dummy payload – no ADC/PIO/DMA)
-           → picomso_response_t filled      [DATA_BLOCK, msg_type = 0x82]
-           → transport_send()              [usb_transport_iface.send]
-           → EP6 IN bulk transfer
-Host ←   (receives DATA_BLOCK response with 64-byte ramp)
+            → picomso_handle_read_data_block()
+                → logic_capture_read_block()
+                  → pre-trigger ring on GPIO 0..15
+                  → trigger detect on GPIO 0 rising edge
+                  → finite post-trigger capture
+                  → finalized 64-byte block
+            → picomso_response_t filled      [DATA_BLOCK, msg_type = 0x82]
+            → transport_send()              [usb_transport_iface.send]
+            → EP6 IN bulk transfer
+Host ←   (receives DATA_BLOCK response with 64 bytes of GPIO samples)
 ```
 
 See `firmware/examples/usb_control_plane/main.c` for the complete annotated

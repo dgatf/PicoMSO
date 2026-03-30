@@ -1,7 +1,15 @@
-add_library(picomso_firmware_mixed_signal INTERFACE)
-
-target_include_directories(picomso_firmware_mixed_signal
-    INTERFACE
-        ${CMAKE_CURRENT_SOURCE_DIR}
+add_library(picomso_firmware_mixed_signal STATIC
+    src/logic_capture.c
 )
 
+target_include_directories(picomso_firmware_mixed_signal
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(picomso_firmware_mixed_signal
+    PUBLIC
+        pico_stdlib
+        hardware_gpio
+        picomso_common
+)

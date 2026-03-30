@@ -134,8 +134,8 @@ typedef struct {
  *
  * Request:  No payload (header.length == 0).
  *   Asks the device to return one block of sample data via the BULK IN
- *   endpoint.  In this phase the device returns a fixed dummy payload;
- *   no real capture hardware is involved.
+ *   endpoint. In logic mode the device returns one finalized one-shot
+ *   logic-analyzer block captured from GPIO 0..15.
  *
  * Response: picomso_data_block_response_t  (msg_type = PICOMSO_MSG_DATA_BLOCK)
  *   The response is delivered over the BULK IN endpoint (EP6_IN).  The
@@ -158,7 +158,7 @@ typedef struct {
  * Offset   Size        Field       Description
  *   0        1         block_id    Monotonically incrementing block counter.
  *   1        2         data_len    Byte count of the following sample data.
- *   3      data_len    data        Raw sample bytes (dummy in this phase).
+ *   3      data_len    data        Raw sample bytes.
  *
  * The full response wire format is:
  *   picomso_packet_header_t  (8 bytes, msg_type = PICOMSO_MSG_DATA_BLOCK)
@@ -167,7 +167,7 @@ typedef struct {
 typedef struct {
     uint8_t  block_id; /**< Monotonically incrementing block counter       */
     uint16_t data_len; /**< Byte count of the data[] field that follows    */
-    uint8_t  data[PICOMSO_DATA_BLOCK_SIZE]; /**< Sample bytes (dummy)      */
+    uint8_t  data[PICOMSO_DATA_BLOCK_SIZE]; /**< Sample bytes              */
 } __attribute__((packed)) picomso_data_block_response_t;
 
 #ifdef __cplusplus
