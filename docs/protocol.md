@@ -1,0 +1,195 @@
+# PicoMSO Protocol Specification (Phase 0 Skeleton)
+
+This document describes the initial, transport-agnostic protocol skeleton
+introduced in `firmware/protocol/`.  The scope is intentionally limited:
+only four commands are defined, the wire format is fully specified, and the
+implementation is a placeholder that returns static values.
+
+---
+
+## Scope and Intentional Limitations
+
+This phase establishes the **wire format** and **command vocabulary** for a
+future unified PicoMSO host protocol.  It does **not**:
+
+- Replace the existing SUMP protocol used by `logic_analyzer_rp2040`.
+- Replace the existing custom USB binary protocol used by `oscilloscope_rp2040`.
+- Introduce any USB, CDC, bulk-endpoint, PIO, ADC, or DMA dependency.
+- Implement the full device protocol.
+- Integrate with libsigrok.
+- Change any current firmware behaviour.
+
+Both imported firmware projects remain independently buildable and unchanged.
+
+---
+
+## Versioning
+
+| Constant                            | Value | Meaning                                         |
+|-------------------------------------|-------|-------------------------------------------------|
+| `PICOMSO_PROTOCOL_VERSION_MAJOR`    | `0`   | Bump on incompatible wire-format change         |
+| `PICOMSO_PROTOCOL_VERSION_MINOR`    | `1`   | Bump when new commands are added                |
+
+The device rejects any packet whose `version_major` differs from its own
+with `PICOMSO_STATUS_ERR_VERSION`.
+
+---
+
+## Packet Header
+
+Every packet (request or response) starts with an 8-byte fixed-length header.
+All multi-byte fields are **little-endian**.
+
+| Offset | Size | Field           | Description                                              |
+|--------|------|-----------------|----------------------------------------------------------|
+| 0      | 2    | `magic`         | Must equal `0x4D53` (ASCII "MS", little-endian)          |
+| 2      | 1    | `version_major` | Protocol major version                                   |
+| 3      | 1    | `version_minor` | Protocol minor version                                   |
+| 4      | 1    | `msg_type`      | Message type (see table below)                           |
+| 5      | 1    | `seq`           | Sequence number – echoed verbatim in the response        |
+| 6      | 2    | `length`        | Byte count of the payload that follows the header        |
+
+The payload immediately follows the header with no padding.
+Maximum accepted payload length: **512 bytes**.
+
+---
+
+## Message Types
+
+| Value  | Constant                     | Direction       | Description            |
+|--------|------------------------------|-----------------|------------------------|
+| `0x01` | `PICOMSO_MSG_GET_INFO`       | host → device   | Request firmware info  |
+| `0x02` | `PICOMSO_MSG_GET_CAPABILITIES` | host → device | Request capability map |
+| `0x03` | `PICOMSO_MSG_GET_STATUS`     | host → device   | Request device status  |
+| `0x04` | `PICOMSO_MSG_SET_MODE`       | host → device   | Set operating mode     |
+| `0x80` | `PICOMSO_MSG_ACK`            | device → host   | Successful response    |
+| `0x81` | `PICOMSO_MSG_ERROR`          | device → host   | Error response         |
+
+---
+
+## Status / Error Codes
+
+| Value  | Constant                        | Meaning                              |
+|--------|---------------------------------|--------------------------------------|
+| `0x00` | `PICOMSO_STATUS_OK`             | Success                              |
+| `0x01` | `PICOMSO_STATUS_ERR_UNKNOWN`    | Unrecognised command                 |
+| `0x02` | `PICOMSO_STATUS_ERR_BAD_MAGIC`  | Magic bytes mismatch                 |
+| `0x03` | `PICOMSO_STATUS_ERR_BAD_LEN`    | Payload length out of range          |
+| `0x04` | `PICOMSO_STATUS_ERR_BAD_MODE`   | Unknown mode value in `SET_MODE`     |
+| `0x05` | `PICOMSO_STATUS_ERR_VERSION`    | Incompatible protocol major version  |
+
+---
+
+## ACK Response Payload
+
+Used when the device responds successfully.  `msg_type` = `0x80`.
+
+| Offset | Size | Field    | Description                  |
+|--------|------|----------|------------------------------|
+| 0      | 1    | `status` | Always `0x00` (`STATUS_OK`)  |
+
+---
+
+## ERROR Response Payload
+
+Used when the device encounters an error.  `msg_type` = `0x81`.
+
+| Offset    | Size      | Field     | Description                              |
+|-----------|-----------|-----------|------------------------------------------|
+| 0         | 1         | `status`  | `picomso_status_t` error code (non-zero) |
+| 1         | 1         | `msg_len` | Byte length of the human-readable string |
+| 2         | `msg_len` | `message` | UTF-8 text, **no** NUL terminator on wire |
+
+---
+
+## Command Definitions
+
+### GET_INFO (`0x01`)
+
+**Request payload:** none (`header.length == 0`)
+
+**Response payload** (`PICOMSO_MSG_ACK`):
+
+| Offset | Size | Field                   | Description                              |
+|--------|------|-------------------------|------------------------------------------|
+| 0      | 1    | `protocol_version_major`| Protocol major version the device speaks |
+| 1      | 1    | `protocol_version_minor`| Protocol minor version                   |
+| 2      | 32   | `fw_id`                 | NUL-terminated ASCII firmware identifier |
+
+---
+
+### GET_CAPABILITIES (`0x02`)
+
+**Request payload:** none (`header.length == 0`)
+
+**Response payload** (`PICOMSO_MSG_ACK`):
+
+| Offset | Size | Field          | Description                        |
+|--------|------|----------------|------------------------------------|
+| 0      | 4    | `capabilities` | 32-bit little-endian capability map|
+
+**Capability bits:**
+
+| Bit | Constant            | Meaning                               |
+|-----|---------------------|---------------------------------------|
+| 0   | `PICOMSO_CAP_LOGIC` | Device supports logic-analyser mode   |
+| 1   | `PICOMSO_CAP_SCOPE` | Device supports oscilloscope mode     |
+| 2–31| (reserved)          | Must be zero                          |
+
+---
+
+### GET_STATUS (`0x03`)
+
+**Request payload:** none (`header.length == 0`)
+
+**Response payload** (`PICOMSO_MSG_ACK`):
+
+| Offset | Size | Field           | Description                                   |
+|--------|------|-----------------|-----------------------------------------------|
+| 0      | 1    | `mode`          | Current operating mode (see values below)     |
+| 1      | 1    | `capture_state` | Current capture state (see values below)      |
+
+**Mode values:**
+
+| Value  | Meaning                      |
+|--------|------------------------------|
+| `0x00` | No mode selected (`UNSET`)   |
+| `0x01` | Logic-analyser mode          |
+| `0x02` | Oscilloscope mode            |
+
+**Capture state values:**
+
+| Value  | Meaning                          |
+|--------|----------------------------------|
+| `0x00` | No capture in progress (`IDLE`)  |
+| `0x01` | Capture active (`RUNNING`)       |
+
+---
+
+### SET_MODE (`0x04`)
+
+**Request payload:**
+
+| Offset | Size | Field  | Description                             |
+|--------|------|--------|-----------------------------------------|
+| 0      | 1    | `mode` | Desired mode (`0x00`, `0x01`, `0x02`)   |
+
+**Response:** `ACK` on success, or `ERROR` with `PICOMSO_STATUS_ERR_BAD_MODE`
+if the mode value is not one of the defined values.
+
+---
+
+## Transport Independence
+
+The protocol layer (`firmware/protocol/`) contains **no** transport-specific
+code.  It operates on raw byte buffers:
+
+- **Input:** a `const uint8_t *` buffer containing exactly one packet
+  (header + payload).
+- **Output:** a `picomso_response_t` buffer into which the full response
+  packet (header + payload) is written.
+
+The caller is responsible for:
+1. Reading bytes from whichever transport is in use (USB, UART, SPI, …).
+2. Passing them to `picomso_dispatch()`.
+3. Writing `resp.buf[0 .. resp.used-1]` back to the transport.

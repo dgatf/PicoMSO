@@ -175,6 +175,58 @@ one project to grow or shrink its buffer for no functional benefit. Left as-is.
 
 ---
 
+## Protocol Layer (`firmware/protocol/`)
+
+### Role
+
+`firmware/protocol/` contains the transport-agnostic skeleton of the future
+unified PicoMSO host protocol.  It defines:
+
+- The wire-format packet header (`picomso_packet_header_t`).
+- The message-type enumeration (`picomso_msg_type_t`).
+- Per-command request/response packet structures (`protocol_packets.h`).
+- A dispatch entry point (`picomso_dispatch`) that validates an incoming
+  byte buffer and routes it to the appropriate per-command handler.
+- Helper functions to build ACK and ERROR response packets.
+
+Phase 0 handles four commands: `GET_INFO`, `GET_CAPABILITIES`,
+`GET_STATUS`, and `SET_MODE`.  Handlers currently return static /
+placeholder values; future phases will wire them to real hardware state.
+
+### Relationship to Transport
+
+The protocol layer has **no dependency** on:
+
+| Concern               | Location (not in firmware/protocol)      |
+|-----------------------|------------------------------------------|
+| USB (CDC / bulk)      | Each project's `usb.c`, `protocol.c`     |
+| UART / SPI            | Future transport adapters                |
+| PIO, ADC, DMA         | Each project's capture back-end          |
+
+Callers supply raw byte buffers and receive raw byte buffers in return.
+Wiring those buffers to an actual transport is the responsibility of a
+future transport adapter layer, which will live outside `firmware/protocol/`.
+
+### Relationship to Capture Controller
+
+`firmware/protocol/` does not currently call `capture_controller_t`
+directly.  The `GET_STATUS` and `SET_MODE` handlers maintain simple
+module-level state variables as placeholders.
+
+In a future phase the dispatcher will accept a `capture_controller_t *`
+context pointer (or equivalent) so that `GET_STATUS` can read the real
+mode and capture state, and `SET_MODE` can delegate to
+`capture_controller_set_mode()`.
+
+### What Remains Unchanged
+
+- `logic_analyzer_rp2040` continues to use its SUMP-over-CDC protocol.
+- `oscilloscope_rp2040` continues to use its custom USB bulk protocol.
+- Neither project includes or links `firmware/protocol/`.
+- No capture pipeline, DMA setup, or USB framing has been modified.
+
+---
+
 ## Build Entry Points
 
 Both projects remain independently buildable. The shared library in
