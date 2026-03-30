@@ -53,6 +53,10 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
                                          const uint8_t                 *payload,
                                          picomso_response_t            *resp);
 
+picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *hdr,
+                                                const uint8_t                 *payload,
+                                                picomso_response_t            *resp);
+
 /* -----------------------------------------------------------------------
  * Internal helpers
  * ----------------------------------------------------------------------- */
@@ -200,6 +204,9 @@ picomso_status_t picomso_dispatch(const uint8_t      *in_buf,
 
         case PICOMSO_MSG_SET_MODE:
             return picomso_handle_set_mode(&hdr, payload, resp);
+
+        case PICOMSO_MSG_READ_DATA_BLOCK:
+            return picomso_handle_read_data_block(&hdr, payload, resp);
 
         default:
             picomso_write_error(hdr.seq, PICOMSO_STATUS_ERR_UNKNOWN,

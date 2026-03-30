@@ -49,7 +49,7 @@ extern "C" {
 #define PICOMSO_PROTOCOL_VERSION_MAJOR  0
 
 /** Protocol minor version.  Bump when new commands are added. */
-#define PICOMSO_PROTOCOL_VERSION_MINOR  1
+#define PICOMSO_PROTOCOL_VERSION_MINOR  2
 
 /* -----------------------------------------------------------------------
  * Packet framing constants
@@ -100,10 +100,12 @@ typedef enum {
     PICOMSO_MSG_GET_CAPABILITIES  = 0x02,
     PICOMSO_MSG_GET_STATUS        = 0x03,
     PICOMSO_MSG_SET_MODE          = 0x04,
+    PICOMSO_MSG_READ_DATA_BLOCK   = 0x05, /**< Request a data-plane sample block */
 
     /* Responses (device → host) */
     PICOMSO_MSG_ACK               = 0x80,
     PICOMSO_MSG_ERROR             = 0x81,
+    PICOMSO_MSG_DATA_BLOCK        = 0x82, /**< Data-plane response carrying sample bytes */
 } picomso_msg_type_t;
 
 /* -----------------------------------------------------------------------
@@ -160,6 +162,10 @@ typedef struct {
  * by this implementation.
  * ----------------------------------------------------------------------- */
 
+/** Size in bytes of the dummy sample payload returned by READ_DATA_BLOCK. */
+#define PICOMSO_DATA_BLOCK_SIZE  64u
+
+/** Response buffer large enough for any packet this implementation produces. */
 #define PICOMSO_RESPONSE_BUF_SIZE  256u
 
 typedef struct {

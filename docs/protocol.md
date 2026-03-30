@@ -1,24 +1,25 @@
-# PicoMSO Protocol Specification (Phase 0)
+# PicoMSO Protocol Specification (Phase 1)
 
 This document describes the transport-agnostic protocol layer introduced in
-`firmware/protocol/`.  The scope is intentionally limited: only four commands
-are defined, the wire format is fully specified, and `GET_STATUS` / `SET_MODE`
-now delegate to a real `capture_controller_t` instance instead of returning
-static placeholders.
+`firmware/protocol/`.  Phase 1 extends Phase 0 with the first minimal
+data-plane command (`READ_DATA_BLOCK`) that exercises the BULK IN path with a
+dummy sample payload.
 
 ---
 
 ## Scope and Intentional Limitations
 
-This phase establishes the **wire format**, **command vocabulary**, and
-**control-plane state management** for the future unified PicoMSO host
-protocol.  It does **not**:
+This phase establishes the **wire format**, **command vocabulary**,
+**control-plane state management**, and a **minimal data-plane path** for the
+future unified PicoMSO host protocol.  It does **not**:
 
 - Replace the existing SUMP protocol used by `logic_analyzer_rp2040`.
 - Replace the existing custom USB binary protocol used by `oscilloscope_rp2040`.
-- Introduce any USB, CDC, bulk-endpoint, PIO, ADC, or DMA dependency.
-- Implement the full device protocol.
-- Integrate with libsigrok.
+- Introduce any USB, CDC, bulk-endpoint, PIO, ADC, or DMA dependency in the
+  protocol layer itself.
+- Implement real logic or analog capture.
+- Implement DMA / ADC / PIO integration.
+- Implement streaming (one block per explicit request only).
 - Change any current firmware behaviour.
 
 Both imported firmware projects remain independently buildable and unchanged.
@@ -30,7 +31,7 @@ Both imported firmware projects remain independently buildable and unchanged.
 | Constant                            | Value | Meaning                                         |
 |-------------------------------------|-------|-------------------------------------------------|
 | `PICOMSO_PROTOCOL_VERSION_MAJOR`    | `0`   | Bump on incompatible wire-format change         |
-| `PICOMSO_PROTOCOL_VERSION_MINOR`    | `1`   | Bump when new commands are added                |
+| `PICOMSO_PROTOCOL_VERSION_MINOR`    | `2`   | Bump when new commands are added                |
 
 The device rejects any packet whose `version_major` differs from its own
 with `PICOMSO_STATUS_ERR_VERSION`.
@@ -58,14 +59,16 @@ Maximum accepted payload length: **512 bytes**.
 
 ## Message Types
 
-| Value  | Constant                     | Direction       | Description            |
-|--------|------------------------------|-----------------|------------------------|
-| `0x01` | `PICOMSO_MSG_GET_INFO`       | host → device   | Request firmware info  |
-| `0x02` | `PICOMSO_MSG_GET_CAPABILITIES` | host → device | Request capability map |
-| `0x03` | `PICOMSO_MSG_GET_STATUS`     | host → device   | Request device status  |
-| `0x04` | `PICOMSO_MSG_SET_MODE`       | host → device   | Set operating mode     |
-| `0x80` | `PICOMSO_MSG_ACK`            | device → host   | Successful response    |
-| `0x81` | `PICOMSO_MSG_ERROR`          | device → host   | Error response         |
+| Value  | Constant                       | Direction       | Description                       |
+|--------|--------------------------------|-----------------|-----------------------------------|
+| `0x01` | `PICOMSO_MSG_GET_INFO`         | host → device   | Request firmware info             |
+| `0x02` | `PICOMSO_MSG_GET_CAPABILITIES` | host → device   | Request capability map            |
+| `0x03` | `PICOMSO_MSG_GET_STATUS`       | host → device   | Request device status             |
+| `0x04` | `PICOMSO_MSG_SET_MODE`         | host → device   | Set operating mode                |
+| `0x05` | `PICOMSO_MSG_READ_DATA_BLOCK`  | host → device   | Request one data-plane block      |
+| `0x80` | `PICOMSO_MSG_ACK`              | device → host   | Successful control-plane response |
+| `0x81` | `PICOMSO_MSG_ERROR`            | device → host   | Error response                    |
+| `0x82` | `PICOMSO_MSG_DATA_BLOCK`       | device → host   | Data-plane block response         |
 
 ---
 
@@ -187,12 +190,44 @@ any capture hardware; real capture initiation is deferred to a future phase.
 
 ---
 
+### READ_DATA_BLOCK (`0x05`)
+
+**Request payload:** none (`header.length == 0`)
+
+**Response:** `picomso_data_block_response_t` with `msg_type = 0x82`
+(`PICOMSO_MSG_DATA_BLOCK`), delivered over the **BULK IN** endpoint (EP6_IN).
+
+**Response payload:**
+
+| Offset      | Size        | Field      | Description                                  |
+|-------------|-------------|------------|----------------------------------------------|
+| 0           | 1           | `block_id` | Monotonically incrementing block counter     |
+| 1           | 2           | `data_len` | Byte count of the data bytes that follow     |
+| 3           | `data_len`  | `data`     | Raw sample bytes (dummy ramp in this phase)  |
+
+**Dummy payload (Phase 1):**  The device returns a fixed 64-byte ramp pattern
+(`0x00, 0x01, …, 0x3F`).  `block_id` increments by one on each response.
+**No real capture hardware is involved.**  This payload is a placeholder to
+exercise the control-plane → BULK IN data path end-to-end.
+
+**Transport note:**  The request arrives as a vendor OUT control transfer on
+EP0.  The DATA_BLOCK response is sent over EP6 IN (BULK IN), establishing the
+first split between control-plane (EP0) and data-plane (BULK IN).  No BULK OUT
+endpoint is added; descriptors and endpoint configuration are unchanged.
+
+---
+
 ## Current Limitations
 
-The protocol implementation handles the four defined control-plane commands
-through both the dummy transport (testing) and the real USB transport backend
+The protocol implementation handles all defined commands through both the dummy
+transport (testing) and the real USB transport backend
 (`firmware/transport/usb/`).  The following constraints still apply:
 
+- **Dummy data only.**  `READ_DATA_BLOCK` returns a fixed 64-byte ramp pattern.
+  No ADC, PIO, or DMA operation is triggered.  Real capture hardware integration
+  is deferred to a future phase.
+- **No streaming.**  One block is returned per explicit `READ_DATA_BLOCK`
+  request.  Continuous streaming is out of scope.
 - **No real capture start/stop.**  `SET_MODE` updates the mode tracked by
   `capture_controller_t` only.  No ADC, PIO, or DMA operation is triggered.
 - **Capture state is always `IDLE`.**  The `capture_state` field in
@@ -203,10 +238,6 @@ through both the dummy transport (testing) and the real USB transport backend
   `PICOMSO_CAP_LOGIC | PICOMSO_CAP_SCOPE` regardless of the connected
   hardware.
 - **Static firmware identifier.**  `GET_INFO` always returns `"PicoMSO-0.1"`.
-- **Control-plane commands only.**  The USB backend carries commands via
-  vendor OUT control transfers (EP0) and responses via EP6 IN bulk transfers.
-  There is no BULK OUT endpoint and no capture data streaming path in this
-  phase.
 
 ---
 
@@ -226,9 +257,9 @@ A separate transport abstraction layer (`firmware/transport/`) provides the
 depend on `firmware/transport/`; both layers are independent and are
 connected only through `firmware/integration/`.
 
-## End-to-End Flow (USB backend)
+## End-to-End Flow (USB backend – control-plane commands)
 
-The full path a request takes through the real USB transport backend:
+The full path a control-plane request takes through the real USB transport backend:
 
 ```
 Host (vendor OUT control transfer on EP0)
@@ -238,10 +269,32 @@ Host (vendor OUT control transfer on EP0)
            → transport_receive()            [usb_transport_iface.receive]
            → picomso_dispatch()
            → per-command handler (reads/writes capture_controller_t)
-           → picomso_response_t filled
+           → picomso_response_t filled      [ACK or ERROR]
            → transport_send()              [usb_transport_iface.send]
            → EP6 IN bulk transfer
 Host ←
+```
+
+## End-to-End Flow (USB backend – READ_DATA_BLOCK)
+
+The first data-plane path.  The request still arrives on EP0; the response
+(carrying sample data) is returned over the existing BULK IN endpoint (EP6_IN).
+No new endpoints, descriptors, or hardware are added.
+
+```
+Host (vendor OUT control transfer on EP0, msg_type = 0x05)
+           → control_transfer_handler()
+           → static rx_buf in usb_transport.c
+           → integration_process_one()
+           → transport_receive()
+           → picomso_dispatch()
+           → picomso_handle_read_data_block()
+               builds 64-byte ramp in picomso_data_block_response_t
+               (dummy payload – no ADC/PIO/DMA)
+           → picomso_response_t filled      [DATA_BLOCK, msg_type = 0x82]
+           → transport_send()              [usb_transport_iface.send]
+           → EP6 IN bulk transfer
+Host ←   (receives DATA_BLOCK response with 64-byte ramp)
 ```
 
 See `firmware/examples/usb_control_plane/main.c` for the complete annotated
@@ -256,7 +309,8 @@ validation without hardware:
 Host packet → dummy_transport_iface.receive()
            → integration_process_one()
            → picomso_dispatch()
-           → per-command handler (reads/writes capture_controller_t)
+           → per-command handler (reads/writes capture_controller_t, or
+                                  builds data block for READ_DATA_BLOCK)
            → picomso_response_t filled
            → dummy_transport_iface.send()
            → response bytes in dummy tx_buf
