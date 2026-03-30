@@ -218,7 +218,20 @@ code.  It operates on raw byte buffers:
 - **Output:** a `picomso_response_t` buffer into which the full response
   packet (header + payload) is written.
 
+A separate transport abstraction layer (`firmware/transport/`) provides the
+`transport_interface_t` / `transport_ctx_t` types and the helper functions
+`transport_send()` / `transport_receive()`.  The protocol layer does **not**
+depend on `firmware/transport/`; both layers are independent and are
+connected only at the application / integration level.
+
 The caller is responsible for:
-1. Reading bytes from whichever transport is in use (USB, UART, SPI, …).
+1. Reading bytes from whichever transport is in use (USB, UART, SPI, …)
+   via `transport_receive()` or directly.
 2. Passing them to `picomso_dispatch()`.
-3. Writing `resp.buf[0 .. resp.used-1]` back to the transport.
+3. Writing `resp.buf[0 .. resp.used-1]` back to the transport via
+   `transport_send()` or directly.
+
+**No concrete wire transport exists yet.**  `firmware/transport/` defines
+the abstraction only; no USB CDC adapter, no USB bulk adapter, and no UART
+adapter have been implemented in Phase 0.  The protocol layer therefore
+remains untested against real hardware until a backend is supplied.
