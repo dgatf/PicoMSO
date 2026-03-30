@@ -245,6 +245,55 @@ that a capture has started or stopped.
 
 ---
 
+## Transport Layer (`firmware/transport/`)
+
+### Role
+
+`firmware/transport/` defines the minimal, generic interface through which
+the protocol layer (and any future higher-level code) sends and receives raw
+byte buffers.  It is intentionally transport-agnostic:
+
+- **No USB dependency** – no TinyUSB headers, no CDC, no bulk endpoints.
+- **No UART / SPI dependency** – no hardware peripheral assumptions.
+- **No ADC / PIO / DMA dependency** – purely software abstraction.
+
+### Key Types
+
+| Type                    | Description                                                  |
+|-------------------------|--------------------------------------------------------------|
+| `transport_result_t`    | Enum of operation outcomes (`TRANSPORT_OK`, error codes)     |
+| `transport_interface_t` | Function-pointer table: `is_ready`, `send`, `receive`        |
+| `transport_ctx_t`       | Runtime context: pointer to interface + opaque `user_data`   |
+
+### Helper API
+
+| Function              | Description                                                   |
+|-----------------------|---------------------------------------------------------------|
+| `transport_init()`    | Bind an interface + user-data to a context; no hardware I/O  |
+| `transport_is_ready()`| Delegate to `iface->is_ready`; treats NULL as always ready   |
+| `transport_send()`    | Forward a byte buffer to `iface->send`                       |
+| `transport_receive()` | Forward a buffer + length to `iface->receive`                |
+
+### Relationship to Protocol
+
+The protocol layer (`firmware/protocol/`) operates entirely on raw byte
+buffers returned by `picomso_dispatch()`.  A future integration layer will:
+
+1. Call `transport_receive()` to read an incoming packet from the wire.
+2. Pass the buffer to `picomso_dispatch()`.
+3. Call `transport_send()` to write the response back to the wire.
+
+The protocol layer itself never calls into `firmware/transport/` directly;
+that coupling belongs to the integration / application layer.
+
+### No Concrete Backend Yet
+
+Phase 0 ships only the abstraction.  No USB CDC adapter, no USB bulk
+adapter, and no UART adapter exist yet.  The function-pointer slots in
+`transport_interface_t` are left for future backend modules to fill.
+
+---
+
 ## Build Entry Points
 
 Both projects remain independently buildable. The shared library in
