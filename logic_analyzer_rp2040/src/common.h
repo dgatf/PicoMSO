@@ -25,7 +25,8 @@ extern "C" {
 
 #include <stdio.h>
 
-#include "pico/types.h"
+#include "debug.h"
+#include "types.h"
 
 // Number of channels
 #define CHANNEL_COUNT 16
@@ -44,38 +45,11 @@ typedef enum gpio_config_t {
 
 typedef enum command_t { COMMAND_NONE, COMMAND_RESET, COMMAND_CAPTURE } command_t;
 
-typedef enum trigger_match_t {
-    TRIGGER_TYPE_LEVEL_LOW,
-    TRIGGER_TYPE_LEVEL_HIGH,
-    TRIGGER_TYPE_EDGE_LOW,
-    TRIGGER_TYPE_EDGE_HIGH
-} trigger_match_t;
-
-typedef struct trigger_t {
-    bool is_enabled;
-    uint pin;
-    trigger_match_t match;
-} trigger_t;
-
 typedef struct config_t {
     uint channels;
     bool trigger_edge;
     bool debug;
 } config_t;
-
-typedef struct capture_config_t {
-    uint total_samples;
-    uint rate;
-    uint pre_trigger_samples;
-    uint channels;
-    trigger_t trigger[4];
-} capture_config_t;
-
-void debug_init(uint baudrate, char *buffer, bool *is_enabled);
-void debug_reinit(void);
-void debug(const char *format, ...);
-void debug_block(const char *format, ...);
-bool debug_is_enabled(void);
 
 #ifdef __cplusplus
 }

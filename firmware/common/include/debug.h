@@ -1,5 +1,5 @@
 /*
- * Oscilloscope RP2040
+ * PicoMSO - RP2040 Mixed Signal Oscilloscope
  * Copyright (C) 2024 Daniel Gorbea <danielgorbea@hotmail.com>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -16,28 +16,29 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef OSCILLOSCOPE_H
-#define OSCILLOSCOPE_H
+#ifndef PICOMSO_DEBUG_H
+#define PICOMSO_DEBUG_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include "common.h"
-#include "types.h"
+#include <stdbool.h>
 
-#define BUFFER_RING_BITS 15
-#define BUFFER_SIZE (1u << BUFFER_RING_BITS)  // 32 KiB
+#include "pico/types.h"
 
-void oscilloscope_init(void);
-void oscilloscope_start(void);
-void oscilloscope_stop(void);
-void oscilloscope_task(void);
-capture_state_t oscilloscope_state(void);
-void oscilloscope_set_samplerate(uint samplerate);
-void oscilloscope_set_channels(uint8_t mask);
-void oscilloscope_set_calibration_frequency(uint freq);
-void oscilloscope_set_coupling(channel_t channel, coupling_t coupling);
+// UART0 is used for debug output on both firmware projects
+#define DEBUG_UART_TX_GPIO 16
+#define DEBUG_UART_RX_GPIO 17
+
+// Pull this GPIO low at boot to enable debug output (active-low, pull-up default)
+#define DEBUG_ENABLE_GPIO 18
+
+void debug_init(uint baudrate, char *buffer, bool *is_enabled);
+void debug_reinit(void);
+void debug(const char *format, ...);
+void debug_block(const char *format, ...);
+bool debug_is_enabled(void);
 
 #ifdef __cplusplus
 }

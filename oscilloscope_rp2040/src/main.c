@@ -35,6 +35,7 @@ int main() {
     config_.is_multicore = true;
 
     debug_init(57600, debug_message_, &config_.debug_is_enabled);
+    sleep_ms(1000);  // allow host to connect before first debug message
     debug("\n\n%s - v%s", DEVICE_NAME, PROJECT_VERSION);
 
     usb_device_init();

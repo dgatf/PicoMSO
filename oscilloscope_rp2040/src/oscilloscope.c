@@ -36,7 +36,7 @@ extern char debug_message_[DEBUG_BUFFER_SIZE];
 
 static const uint dma_channel_adc_ = 0, dma_channel_reload_adc_counter_ = 1, reload_counter_ = BULK_SIZE;
 static uint slice_num_;
-static state_t state_ = IDLE;
+static capture_state_t state_ = CAPTURE_IDLE;
 static uint8_t buffer_[BUFFER_SIZE] __attribute__((aligned(BUFFER_SIZE * sizeof(uint8_t)))) = {0};
 static volatile uint32_t *clk_adc_ctrl = (volatile uint32_t *)(CLOCKS_BASE + CLOCKS_CLK_ADC_CTRL_OFFSET);
 static void (*handler_)(void) = NULL;
@@ -67,7 +67,7 @@ void oscilloscope_init(void) {
 }
 
 void oscilloscope_start(void) {
-    state_ = RUNNING;
+    state_ = CAPTURE_RUNNING;
 
     // adc setup
     adc_run(false);
@@ -134,13 +134,13 @@ void oscilloscope_stop(void) {
     irq_set_enabled(DMA_IRQ_0, false);
     irq_clear(DMA_IRQ_0);
     gpio_put(PICO_DEFAULT_LED_PIN, 0);
-    state_ = IDLE;
+    state_ = CAPTURE_IDLE;
     debug("\nOscilloscope stop");
 }
 
 void oscilloscope_task(void) { protocol_task(); }
 
-state_t oscilloscope_state(void) { return state_; }
+capture_state_t oscilloscope_state(void) { return state_; }
 
 void oscilloscope_set_samplerate(uint samplerate) {
     float clk_div;

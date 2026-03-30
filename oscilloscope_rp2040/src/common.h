@@ -23,6 +23,7 @@
 extern "C" {
 #endif
 
+#include "debug.h"
 #include "pico/types.h"
 
 // Debug buffer size
@@ -56,12 +57,6 @@ typedef struct oscilloscope_config_t {
 } oscilloscope_config_t;
 
 typedef enum channel_t { CHANNEL1, CHANNEL2 } channel_t;
-
-void debug_init(uint baudrate, char *buffer, bool *is_enabled);
-void debug_reinit(void);
-void debug(const char *format, ...);
-void debug_block(const char *format, ...);
-bool debug_is_enabled(void);
 
 #ifdef __cplusplus
 }

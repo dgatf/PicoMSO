@@ -267,7 +267,7 @@ void control_transfer_handler(uint8_t *buf, volatile struct usb_setup_packet *pk
             case 0xE3:  // start/stop sampling
             {
                 if (buf[0] == 1) {
-                    if (oscilloscope_state() == IDLE) {
+                    if (oscilloscope_state() == CAPTURE_IDLE) {
                         debug("\nCommand start sampling");
                         sample_count_ = 0;
 
@@ -277,7 +277,7 @@ void control_transfer_handler(uint8_t *buf, volatile struct usb_setup_packet *pk
                               (oscilloscope_config_.channel_mask & 0B010) ? "enabled" : "disabled");
                     }
                 } else {
-                    if (oscilloscope_state() == RUNNING) {
+                    if (oscilloscope_state() == CAPTURE_RUNNING) {
                         debug("\nCommand stop sampling");
                         should_stop = true;
                     }

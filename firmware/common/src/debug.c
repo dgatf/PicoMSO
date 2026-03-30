@@ -1,5 +1,5 @@
 /*
- * Oscilloscope RP2040
+ * PicoMSO - RP2040 Mixed Signal Oscilloscope
  * Copyright (C) 2024 Daniel Gorbea <danielgorbea@hotmail.com>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -16,19 +16,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "common.h"
+#include "debug.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 
 #include "hardware/gpio.h"
 #include "hardware/uart.h"
-#include "pico/stdlib.h"
 
 static char *buffer_;
 static bool *is_enabled_;
 static uint baudrate_;
-
 
 void debug_init(uint baudrate, char *buffer, bool *is_enabled) {
     buffer_ = buffer;
@@ -37,16 +35,15 @@ void debug_init(uint baudrate, char *buffer, bool *is_enabled) {
     if (*is_enabled_) {
         uart_init(uart0, baudrate);
         uart_set_fifo_enabled(uart0, true);
-        gpio_set_function(16, GPIO_FUNC_UART);
+        gpio_set_function(DEBUG_UART_TX_GPIO, GPIO_FUNC_UART);
     }
-    sleep_ms(1000);
 }
 
 void debug_reinit(void) {
     if (*is_enabled_) {
         uart_init(uart0, baudrate_);
         uart_set_fifo_enabled(uart0, true);
-        gpio_set_function(16, GPIO_FUNC_UART);
+        gpio_set_function(DEBUG_UART_TX_GPIO, GPIO_FUNC_UART);
     }
 }
 
@@ -66,8 +63,8 @@ void debug_block(const char *format, ...) {
         va_start(args, format);
         vsprintf(buffer_, format, args);
         uart_puts(uart0, buffer_);
-        uart_tx_wait_blocking(uart0);
         va_end(args);
+        uart_tx_wait_blocking(uart0);
     }
 }
 
