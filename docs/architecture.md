@@ -287,13 +287,75 @@ buffers returned by `picomso_dispatch()`.  The integration layer
 The protocol layer itself never calls into `firmware/transport/` directly;
 that coupling lives exclusively in `firmware/integration/`.
 
-### Phase 0 Backend: Dummy/Mock Only
+### Concrete Backends
 
-Phase 0 ships the abstraction plus one concrete backend: the dummy/mock
-transport defined in `firmware/integration/include/dummy_transport.h`.
-It uses two in-memory byte arrays to simulate send and receive without any
-hardware or OS dependency.  No USB CDC adapter, no USB bulk adapter, and
-no UART adapter exist yet.
+Two concrete backends are provided:
+
+| Backend                  | Header                                      | Notes                                           |
+|--------------------------|---------------------------------------------|-------------------------------------------------|
+| **Dummy / mock**         | `firmware/integration/include/dummy_transport.h` | In-memory arrays; no hardware dependency   |
+| **USB (RP2040 hardware)**| `firmware/transport/usb/usb_transport.h`    | Real RP2040 USB via custom driver; Pico SDK required |
+
+Both satisfy `transport_interface_t` and are interchangeable from the integration layer's perspective.
+
+---
+
+## USB Transport Backend (`firmware/transport/usb/`)
+
+### Role
+
+`firmware/transport/usb/` adapts the custom RP2040 USB device driver
+(`usb.c` / `usb.h`) to the generic `transport_interface_t` abstraction.
+It is the **real wire transport** for the control-plane path.
+
+### Receive path
+
+The USB driver fires `control_transfer_handler()` (implemented in
+`usb_transport.c`) for every EP0 control transfer event.  When the host
+issues a **vendor OUT control transfer**, the data bytes arrive at
+`STAGE_DATA` and are copied into a static receive buffer.  The
+`transport_receive()` callback drains that buffer on the next poll; it
+returns zero bytes (`TRANSPORT_OK`) while the buffer is empty, allowing
+safe polling from the main loop.
+
+### Send path
+
+`transport_send()` binds the caller's buffer to the EP6\_IN endpoint's
+`data_buffer` pointer and calls `usb_init_transfer()`.  The USB driver
+copies data into DPRAM automatically.  A blocking loop waits until
+`ep->is_completed` is set (suitable for small control-plane packets).
+
+### Readiness
+
+`transport_is_ready()` returns `usb_is_configured()`.  The integration
+layer checks readiness before calling `transport_receive()`; if the USB
+host has not yet enumerated the device the backend signals "not ready"
+and no dispatch is attempted.
+
+### Constraints (this phase)
+
+- **Control-plane only**: incoming commands arrive as vendor OUT control
+  transfers on EP0; responses are sent as bulk IN transfers on EP6.
+- **No new BULK OUT endpoint**: host→device capture commands remain
+  out of scope.
+- **No capture streaming**: SET\_MODE updates `capture_controller_t` only;
+  no ADC, PIO, or DMA is started.
+- **No TinyUSB dependency**: the backend uses the project's own USB driver
+  (`usb.c`) unchanged.
+- **`usb_config.h` and `usb_config.c` are used as-is**: no descriptor
+  or endpoint changes.
+
+### CMake target
+
+`picomso_usb_transport` (defined in `firmware/transport/usb/CMakeLists.txt`,
+built only when `PICO_SDK_INITIALIZED` is set):
+
+```
+picomso_usb_transport
+  ├── usb.c              (RP2040 USB hardware driver)
+  ├── usb_transport.c    (glue layer → transport_interface_t)
+  └── links: hardware_irq, hardware_resets, pico_stdlib, picomso_transport
+```
 
 ---
 
@@ -301,8 +363,8 @@ no UART adapter exist yet.
 
 ### Role
 
-`firmware/integration/` is the thin glue between the transport abstraction
-and the protocol dispatch layer.  It owns:
+`firmware/integration/` is the thin, transport-agnostic glue between any
+`transport_ctx_t` backend and the protocol dispatch layer.  It owns:
 
 - **`integration_ctx_t`** – a small context holding a pointer to the
   caller-supplied `transport_ctx_t`.
@@ -311,7 +373,7 @@ and the protocol dispatch layer.  It owns:
 - **`integration_process_one()`** – executes one full receive → dispatch →
   send cycle.
 - **`dummy_transport_state_t`** + **`dummy_transport_iface`** – the
-  Phase 0 in-memory mock backend.
+  in-memory mock backend (retained for testing and architecture validation).
 
 ### Dependencies
 
@@ -320,27 +382,51 @@ and the protocol dispatch layer.  It owns:
 | `picomso_transport`  | `transport_ctx_t`, `transport_receive`, `transport_send` |
 | `picomso_protocol`   | `picomso_dispatch`, `picomso_response_t`               |
 
-The integration layer has **no** dependency on:
+The integration layer itself has **no** dependency on:
 
 | Concern              | Not present in `firmware/integration/`              |
 |----------------------|-----------------------------------------------------|
 | ADC / PIO / DMA      | No hardware peripherals                             |
-| USB / UART / SPI     | No real wire transport                              |
+| USB / UART / SPI     | Not imported directly (backend supplied by caller)  |
 | Logic-analyzer FW    | Not linked or included                              |
 | Oscilloscope FW      | Not linked or included                              |
-| Pico SDK (direct)    | Pulled in transitively only through `picomso_common`|
 
-### Control-Plane Flow
+### End-to-End Control-Plane Flow (USB backend)
 
 ```
-[ Host packet bytes ]
+Host (vendor OUT control transfer on EP0)
+        │
+        ▼
+  control_transfer_handler()   ← fired by USB driver IRQ
+        │                         copies EP0 data into static rx_buf
+        ▼
+  integration_process_one()
+        │
+        ├─ transport_receive()  ← usb_transport_iface.receive()
+        │                          drains rx_buf (zero bytes → no-op)
+        │
+        ├─ picomso_dispatch()   ← validates header, routes to handler
+        │                          handler reads/writes capture_controller_t
+        │
+        └─ transport_send()     ← usb_transport_iface.send()
+                                   EP6 IN bulk transfer → host
+```
+
+Capture data streaming is **out of scope**: the `capture_controller_t`
+state changes triggered by `SET_MODE` are not propagated to any ADC, PIO,
+or DMA peripheral in this phase.
+
+### Dummy-Transport Flow (testing / architecture validation)
+
+```
+[ Pre-loaded rx_buf bytes ]
         │
         ▼
   transport_receive()          ← dummy_transport_iface.receive()
-        │                         copies pre-loaded rx_buf bytes
+        │                         copies pre-loaded bytes
         ▼
   picomso_dispatch()           ← validates header, routes to handler
-        │                         handler reads/writes capture_controller_t
+        │
         ▼
   transport_send()             ← dummy_transport_iface.send()
         │                         stores response in tx_buf
@@ -348,12 +434,30 @@ The integration layer has **no** dependency on:
 [ Response bytes in tx_buf ]
 ```
 
-The `capture_controller_t` instance that `GET_STATUS` and `SET_MODE` read
-and write lives inside `firmware/protocol/src/protocol_dispatch.c`.  The
-integration layer never touches it directly; all control-plane mutations go
-through `picomso_dispatch()`.
+### Usage Sketch – USB backend
 
-### Usage Sketch
+```c
+/* 1. Initialise the USB hardware. */
+usb_transport_init();
+
+/* 2. Bind the USB transport interface to a context. */
+transport_ctx_t transport;
+transport_init(&transport, &usb_transport_iface, NULL);
+
+/* 3. Bind the transport context to the integration layer. */
+integration_ctx_t ctx;
+integration_init(&ctx, &transport);
+
+/* 4. Control-plane polling loop. */
+while (true) {
+    integration_process_one(&ctx);
+}
+```
+
+See `firmware/examples/usb_control_plane/main.c` for the complete annotated
+entry point.
+
+### Usage Sketch – Dummy backend
 
 ```c
 /* 1. Prepare the dummy transport. */
@@ -380,23 +484,44 @@ const uint8_t *resp = dummy_transport_get_tx(&dummy_state, &resp_len);
 
 ---
 
+## USB Control-Plane Example (`firmware/examples/usb_control_plane/`)
+
+A minimal, self-contained Pico SDK project that demonstrates the end-to-end
+wiring described above.  It is **not** a production firmware image; it is an
+isolated entry point for architecture validation and bring-up.
+
+| File           | Purpose                                                   |
+|----------------|-----------------------------------------------------------|
+| `main.c`       | Wires USB transport → integration → protocol → controller |
+| `CMakeLists.txt` | Standalone Pico SDK project; links all firmware layers  |
+
+See `docs/building.md` for build instructions.
+
+---
+
 ## Build Entry Points
 
-Both projects remain independently buildable. The shared library in
-`firmware/common/` is included as a CMake subdirectory by each project:
+Both imported firmware projects remain independently buildable and unchanged.
+The shared library in `firmware/common/` is included as a CMake subdirectory
+by each project:
 
 ```cmake
 add_subdirectory(../../firmware/common ${CMAKE_BINARY_DIR}/picomso_common)
 ```
 
 ```bash
-# Logic Analyzer
+# Logic Analyzer (unchanged)
 cmake -S logic_analyzer_rp2040/src -B build/logic_analyzer
 cmake --build build/logic_analyzer
 
-# Oscilloscope
+# Oscilloscope (unchanged)
 cmake -S oscilloscope_rp2040/src -B build/oscilloscope
 cmake --build build/oscilloscope
+
+# USB control-plane example (new)
+PICO_SDK_PATH=/path/to/pico-sdk \
+  cmake -S firmware/examples/usb_control_plane -B build/usb_control_plane
+cmake --build build/usb_control_plane
 ```
 
 The `firmware/CMakeLists.txt` entry point (which builds all sub-libraries

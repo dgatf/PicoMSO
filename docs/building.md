@@ -50,6 +50,26 @@ remain INTERFACE-only libraries reserved for future use.
 
 ---
 
+## USB Control-Plane Example (`firmware/examples/usb_control_plane/`)
+
+A minimal, self-contained Pico SDK project that shows the complete wiring
+of USB transport → integration → protocol → capture\_controller.  Flash
+this to a Pico to exercise the real USB control-plane path.
+
+```bash
+PICO_SDK_PATH=/path/to/pico-sdk \
+  cmake -S firmware/examples/usb_control_plane \
+        -B build/usb_control_plane
+cmake --build build/usb_control_plane
+```
+
+Produces `build/usb_control_plane/picomso_usb_control_plane.uf2`.
+
+Commands handled: `GET_INFO`, `GET_CAPABILITIES`, `GET_STATUS`, `SET_MODE`.
+Capture data streaming is **not** implemented in this example.
+
+---
+
 ## Migration Guidance
 
 - Code in `firmware/common/` is real, shared, Pico SDK–dependent source
