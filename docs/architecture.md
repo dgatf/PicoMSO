@@ -437,19 +437,62 @@ translation unit).  This matches the design used in `oscilloscope_rp2040`.
   the PicoMSO USB descriptor tree (vendor/product strings, VID/PID, endpoint
   layout).  Adapting for a new device requires changing only these two files.
 
-### Application Responsibility
+### USB Glue Layer (`usb_transport.c` / `usb_transport.h`)
 
-The application layer that links against `picomso_usb_transport` must define:
+`firmware/transport/usb/usb_transport.c` is the minimal glue layer that connects
+the USB driver to `transport_interface_t`.  It adds two things:
+
+1. **`control_transfer_handler`** — the required application callback invoked by
+   `usb.c` on every EP0 control transfer stage.  The glue layer captures
+   host→device data (OUT, STAGE_DATA) into a single static packet buffer; all
+   other stages and IN transfers are silently ignored.
+
+2. **`usb_transport_iface`** — a `const transport_interface_t` constant that
+   can be passed directly to `transport_init()`.
+
+| `transport_interface_t` field | USB mapping |
+|-------------------------------|-------------|
+| `is_ready`  | `usb_is_configured()` — true once the host completes enumeration |
+| `send`      | EP6_IN bulk transfer; `usb_init_transfer()` with the caller's buffer bound as `ep->data_buffer`; blocks until `ep->is_completed` |
+| `receive`   | EP0_OUT control transfer; data captured by `control_transfer_handler` into a 520-byte static buffer; returns 0 bytes (non-error) when nothing has arrived yet |
+
+#### Control-Plane-Only Scope
+
+This backend is **control-plane only**: it carries protocol command/response
+packets (up to 8 + 512 = 520 bytes).  Capture data streaming (bulk or
+isochronous) is **out of scope** for this backend and remains the exclusive
+concern of the `oscilloscope_rp2040` / `logic_analyzer_rp2040` projects.
+
+#### Usage
 
 ```c
-void control_transfer_handler(uint8_t *buf,
-                               volatile struct usb_setup_packet *pkt,
-                               uint8_t stage);
+// 1. Initialise USB hardware once at startup.
+usb_transport_init();   // wraps usb_device_init()
+
+// 2. Bind the interface to a transport context.
+transport_ctx_t usb_ctx;
+transport_init(&usb_ctx, &usb_transport_iface, NULL);
+
+// 3. Connect to the integration layer.
+integration_ctx_t int_ctx;
+integration_init(&int_ctx, &usb_ctx);
+
+// 4. Poll in the main loop.
+while (1) {
+    integration_process_one(&int_ctx);
+}
 ```
 
-This callback is invoked by the USB driver on every control transfer stage
-(SETUP, DATA, STATUS).  It is how the application layer handles vendor-specific
-USB commands.
+The protocol layer (`picomso_protocol`) never includes or depends on any USB
+header; transport-agnosticism is fully preserved.
+
+### Application Responsibility
+
+`control_transfer_handler` is now provided by the glue layer (`usb_transport.c`).
+Applications that link `picomso_usb_transport` do **not** need to define this
+symbol themselves.  Any application that defines its own `control_transfer_handler`
+(as `oscilloscope_rp2040` does) must not link `picomso_usb_transport`, since both
+would define the same symbol.
 
 ### CMake Target
 
@@ -459,8 +502,8 @@ USB commands.
 target_link_libraries(my_app picomso_usb_transport)
 ```
 
-The target links `hardware_irq`, `hardware_resets`, and `pico_stdlib`.
-It does **not** link TinyUSB or any other USB middleware.
+The target links `hardware_irq`, `hardware_resets`, `pico_stdlib`, and
+`picomso_transport`.  It does **not** link TinyUSB or any other USB middleware.
 
 ### Build Limitations
 
@@ -469,7 +512,3 @@ It does **not** link TinyUSB or any other USB middleware.
 parent project has called `pico_sdk_init()`.  The existing
 `logic_analyzer_rp2040` and `oscilloscope_rp2040` entry points are not
 affected; neither includes `firmware/transport/usb/` in their build graphs.
-
-The USB transport backend is not yet wired to `picomso_transport`,
-`picomso_integration`, or any capture pipeline.  That wiring is deferred to
-a future phase when a concrete PicoMSO firmware entry point is added.
