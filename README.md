@@ -3,6 +3,9 @@
 **RP2040-based Mixed-Signal Oscilloscope (MSO)**  
 An incremental unification of the imported logic analyzer and oscilloscope firmware for a future mixed-signal RP2040 project.
 
+> **Current status:** The working firmware still lives in `logic_analyzer_rp2040/` and `oscilloscope_rp2040/`.
+> The new `firmware/` directory is scaffolding only for future shared modules and does not replace the existing build entry points yet.
+
 ---
 
 ## Overview
@@ -91,4 +94,3 @@ For now, those areas remain in place and are documented rather than moved.
 
 - Transition plan: [`docs/repository-transition.md`](docs/repository-transition.md)
 - Build guidance: [`docs/building.md`](docs/building.md)
-
