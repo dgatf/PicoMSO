@@ -13,6 +13,6 @@ target_include_directories(picomso_transport
 
 # USB transport backend (requires Pico SDK; not built when firmware/ is
 # used as a pure scaffolding include without a Pico SDK toolchain).
-if(PICO_SDK_INITIALIZED)
-    add_subdirectory(usb)
-endif()
+#if(PICO_SDK_INITIALIZED)
+add_subdirectory(usb)
+#endif()
