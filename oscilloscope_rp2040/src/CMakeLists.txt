@@ -26,9 +26,10 @@ set(CMAKE_CXX_STANDARD 17)
 
 pico_sdk_init()
 
+add_subdirectory(../../firmware/common ${CMAKE_BINARY_DIR}/picomso_common)
+
 add_executable(${PROJECT_NAME} 
     main.c
-    common.c
     oscilloscope.c
     protocol.c
     usb.c
@@ -48,6 +49,7 @@ target_link_libraries(${PROJECT_NAME}
     hardware_dma
     hardware_adc
     hardware_pwm
+    picomso_common
 )
 
 pico_set_binary_type(${PROJECT_NAME} copy_to_ram)
