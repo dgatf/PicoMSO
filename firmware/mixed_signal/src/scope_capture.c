@@ -79,6 +79,9 @@ bool scope_capture_start(const capture_config_t *config)
     scope_capture_configure_adc();
     s_phase = SCOPE_CAPTURE_PHASE_CAPTURING;
 
+    /* Keep the oscilloscope path on the same finite request/complete/readout
+     * model as logic capture for now. This blocking ADC polling loop favors
+     * immediate one-shot hardware validation over a new streaming/DMA design. */
     for (uint32_t i = 0u; i < s_scope_capture_config.total_samples; ++i) {
         s_capture_samples[i] = adc_read();
     }
