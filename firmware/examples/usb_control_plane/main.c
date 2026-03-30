@@ -31,7 +31,9 @@
  * Data-plane command handled: READ_DATA_BLOCK.
  *   The host sends READ_DATA_BLOCK as a vendor OUT control transfer on EP0.
  *   The device responds with a DATA_BLOCK response (msg_type 0x82) carrying
- *   a 64-byte dummy ramp payload over the EP6 IN bulk endpoint.
+ *   a 64-byte digital sample block over the EP6 IN bulk endpoint.
+ *   Sample data is supplied by the minimal capture buffer provider
+ *   (capture_buffer_t in firmware/common/).
  *   No real capture hardware (ADC, PIO, DMA) is used.
  *
  * Out of scope for this example:
@@ -54,7 +56,7 @@
  *     → usb_transport_iface.receive()
  *     → integration_process_one()
  *     → picomso_dispatch()
- *     → picomso_handle_read_data_block()  (builds 64-byte ramp payload)
+ *     → picomso_handle_read_data_block()  (requests block from capture_buffer_t)
  *     → usb_transport_iface.send()  (EP6 IN bulk transfer, DATA_BLOCK = 0x82)
  *   → Host
  */
@@ -110,10 +112,13 @@ int main(void)
      * application would add sleep_ms() or use interrupt-driven signalling
      * to yield the CPU while idle.
      *
-     * READ_DATA_BLOCK is handled transparently: the protocol layer builds
-     * a DATA_BLOCK response (msg_type 0x82) with a 64-byte dummy ramp
-     * payload, and integration_process_one() sends it over EP6 IN bulk.
-     * No ADC, PIO, or DMA is started; the payload is a placeholder only.
+     * READ_DATA_BLOCK is handled transparently: the protocol layer calls
+     * capture_buffer_provider_get_block() to obtain one block of digital
+     * sample data from the minimal capture buffer (firmware/common/), then
+     * builds a DATA_BLOCK response (msg_type 0x82) and integration_process_one()
+     * sends it over EP6 IN bulk.
+     * No ADC, PIO, or DMA is started; the capture buffer is a software-only
+     * placeholder for this phase.
      */
     while (true) {
         integration_process_one(&integration);

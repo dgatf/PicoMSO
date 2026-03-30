@@ -175,6 +175,64 @@ one project to grow or shrink its buffer for no functional benefit. Left as-is.
 
 ---
 
+## Minimal Capture Buffer Provider (`firmware/common/capture_buffer`)
+
+### Role
+
+`capture_buffer_t` is a small, hardware-free digital sample buffer that
+supplies sample data to `READ_DATA_BLOCK` requests without embedding a dummy
+payload inside the protocol layer.  It lives in `firmware/common/` so that it
+is available to any layer that needs a real (though still minimal) data source.
+
+### Motivation
+
+The previous `READ_DATA_BLOCK` handler in `protocol_dispatch.c` held an inline
+compile-time constant ramp array.  This tied the protocol layer to a specific
+dummy payload and made the data origin opaque.  Moving the buffer to
+`firmware/common/` gives it a proper home, makes the data-flow explicit, and
+keeps the protocol layer free of embedded sample data.
+
+### What It Owns
+
+| Symbol                            | Description                                           |
+|-----------------------------------|-------------------------------------------------------|
+| `CAPTURE_BUFFER_BLOCK_SIZE`       | Size constant (64 bytes) for one digital sample block |
+| `capture_buffer_t`                | Struct: `uint8_t samples[64]` + `uint8_t block_id`   |
+| `capture_buffer_init()`           | Fills samples with a 0x00…0x3F ramp; resets block_id |
+| `capture_buffer_provider_get_block()` | Copies samples to caller, returns block_id, increments counter |
+
+### What It Deliberately Does Not Own
+
+- No ADC, PIO, or DMA state.
+- No trigger configuration.
+- No streaming logic.
+- No mixed-signal or analog data.
+
+### How the Protocol Layer Uses It
+
+`protocol_dispatch.c` holds a module-level `capture_buffer_t` instance
+(`s_capture_buf`), lazy-initialised on the first `READ_DATA_BLOCK` request.
+The handler calls `capture_buffer_provider_get_block()` to obtain the block
+sequence number and sample bytes, then packages them into a
+`picomso_data_block_response_t` as before.
+
+```
+picomso_handle_read_data_block()
+    └─ capture_buffer_provider_get_block(&s_capture_buf, …)
+           reads s_capture_buf.samples[]
+           returns s_capture_buf.block_id, then increments it
+```
+
+### Future Evolution
+
+In a later phase, `capture_buffer_t` can be extended (or replaced by a
+hardware-backed equivalent) to hold real ADC or PIO sample data.  The
+`capture_buffer_provider_get_block()` call site in `protocol_dispatch.c` does
+not need to change; only the `capture_buffer_t` initialisation logic would be
+updated to populate `samples[]` from a real hardware buffer.
+
+---
+
 ## Protocol Layer (`firmware/protocol/`)
 
 ### Role

@@ -162,7 +162,7 @@ typedef struct {
  * by this implementation.
  * ----------------------------------------------------------------------- */
 
-/** Size in bytes of the dummy sample payload returned by READ_DATA_BLOCK. */
+/** Size in bytes of one sample block returned by READ_DATA_BLOCK. */
 #define PICOMSO_DATA_BLOCK_SIZE  64u
 
 /** Response buffer large enough for any packet this implementation produces. */

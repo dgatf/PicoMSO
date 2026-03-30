@@ -203,12 +203,17 @@ any capture hardware; real capture initiation is deferred to a future phase.
 |-------------|-------------|------------|----------------------------------------------|
 | 0           | 1           | `block_id` | Monotonically incrementing block counter     |
 | 1           | 2           | `data_len` | Byte count of the data bytes that follow     |
-| 3           | `data_len`  | `data`     | Raw sample bytes (dummy ramp in this phase)  |
+| 3           | `data_len`  | `data`     | Raw digital sample bytes                     |
 
-**Dummy payload (Phase 1):**  The device returns a fixed 64-byte ramp pattern
-(`0x00, 0x01, …, 0x3F`).  `block_id` increments by one on each response.
-**No real capture hardware is involved.**  This payload is a placeholder to
-exercise the control-plane → BULK IN data path end-to-end.
+**Data source (Phase 2):**  The device obtains the block via
+`capture_buffer_provider_get_block()` from the minimal capture buffer
+(`capture_buffer_t` in `firmware/common/capture_buffer.h`).  The buffer is
+initialised with a 64-byte ramp pattern (`0x00, 0x01, …, 0x3F`) representing
+minimal digital sample data; `block_id` increments by one on each response.
+**No real capture hardware is involved.**  The capture buffer is a
+hardware-free, software-only provider that exists to decouple the protocol
+layer from an inline dummy payload while keeping real hardware integration
+deferred to a future phase.
 
 **Transport note:**  The request arrives as a vendor OUT control transfer on
 EP0.  The DATA_BLOCK response is sent over EP6 IN (BULK IN), establishing the
@@ -223,9 +228,10 @@ The protocol implementation handles all defined commands through both the dummy
 transport (testing) and the real USB transport backend
 (`firmware/transport/usb/`).  The following constraints still apply:
 
-- **Dummy data only.**  `READ_DATA_BLOCK` returns a fixed 64-byte ramp pattern.
-  No ADC, PIO, or DMA operation is triggered.  Real capture hardware integration
-  is deferred to a future phase.
+- **Software-only capture buffer.**  `READ_DATA_BLOCK` obtains sample data from
+  `capture_buffer_t` (`firmware/common/`), a hardware-free buffer initialised
+  with a ramp pattern.  No ADC, PIO, or DMA operation is triggered.  Real
+  capture hardware integration is deferred to a future phase.
 - **No streaming.**  One block is returned per explicit `READ_DATA_BLOCK`
   request.  Continuous streaming is out of scope.
 - **No real capture start/stop.**  `SET_MODE` updates the mode tracked by
@@ -289,12 +295,14 @@ Host (vendor OUT control transfer on EP0, msg_type = 0x05)
            → transport_receive()
            → picomso_dispatch()
            → picomso_handle_read_data_block()
-               builds 64-byte ramp in picomso_data_block_response_t
-               (dummy payload – no ADC/PIO/DMA)
+               calls capture_buffer_provider_get_block()
+                 → copies ramp samples from capture_buffer_t
+                   (firmware/common/ – no ADC/PIO/DMA)
+               builds picomso_data_block_response_t
            → picomso_response_t filled      [DATA_BLOCK, msg_type = 0x82]
            → transport_send()              [usb_transport_iface.send]
            → EP6 IN bulk transfer
-Host ←   (receives DATA_BLOCK response with 64-byte ramp)
+Host ←   (receives DATA_BLOCK response with 64-byte digital sample block)
 ```
 
 See `firmware/examples/usb_control_plane/main.c` for the complete annotated
@@ -310,7 +318,8 @@ Host packet → dummy_transport_iface.receive()
            → integration_process_one()
            → picomso_dispatch()
            → per-command handler (reads/writes capture_controller_t, or
-                                  builds data block for READ_DATA_BLOCK)
+                                  calls capture_buffer_provider_get_block()
+                                  for READ_DATA_BLOCK)
            → picomso_response_t filled
            → dummy_transport_iface.send()
            → response bytes in dummy tx_buf

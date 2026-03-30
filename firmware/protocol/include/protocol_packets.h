@@ -134,16 +134,17 @@ typedef struct {
  *
  * Request:  No payload (header.length == 0).
  *   Asks the device to return one block of sample data via the BULK IN
- *   endpoint.  In this phase the device returns a fixed dummy payload;
- *   no real capture hardware is involved.
+ *   endpoint.  The device obtains the block from the minimal capture buffer
+ *   provider (capture_buffer_t in firmware/common/); no real capture
+ *   hardware is involved in this phase.
  *
  * Response: picomso_data_block_response_t  (msg_type = PICOMSO_MSG_DATA_BLOCK)
  *   The response is delivered over the BULK IN endpoint (EP6_IN).  The
  *   control plane remains on EP0; this response is the first data-plane
  *   packet in the PicoMSO protocol.
  *
- *   NOTE: This phase sends a fixed dummy/sample payload only.
- *   Real capture hardware (ADC, PIO, DMA) is out of scope.
+ *   NOTE: The capture buffer currently supplies a software-generated ramp
+ *   pattern.  Real capture hardware (ADC, PIO, DMA) is out of scope.
  * ----------------------------------------------------------------------- */
 
 /**
@@ -167,7 +168,7 @@ typedef struct {
 typedef struct {
     uint8_t  block_id; /**< Monotonically incrementing block counter       */
     uint16_t data_len; /**< Byte count of the data[] field that follows    */
-    uint8_t  data[PICOMSO_DATA_BLOCK_SIZE]; /**< Sample bytes (dummy)      */
+    uint8_t  data[PICOMSO_DATA_BLOCK_SIZE]; /**< Sample bytes              */
 } __attribute__((packed)) picomso_data_block_response_t;
 
 #ifdef __cplusplus
