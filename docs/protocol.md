@@ -1,10 +1,10 @@
 # PicoMSO Protocol Specification (Phase 1)
 
 This document describes the transport-agnostic protocol layer introduced in
-`firmware/protocol/`. Phase 1 now includes a concrete logic-analyzer
-request/complete/readout flow: `REQUEST_CAPTURE` performs the full one-shot
-capture, and `READ_DATA_BLOCK` returns fixed-size chunks from the finalized
-stored capture buffer.
+`firmware/protocol/`. Phase 1 now includes concrete one-shot
+request/complete/readout flows for both logic-analyzer and oscilloscope mode:
+`REQUEST_CAPTURE` performs the full one-shot capture, and `READ_DATA_BLOCK`
+returns fixed-size chunks from the finalized stored capture buffer.
 
 ---
 
@@ -18,8 +18,8 @@ future unified PicoMSO host protocol.  It does **not**:
 - Replace the existing custom USB binary protocol used by `oscilloscope_rp2040`.
 - Introduce any USB, CDC, bulk-endpoint, PIO, ADC, or DMA dependency in the
   protocol layer itself.
-- Implement oscilloscope capture.
-- Implement DMA / ADC / PIO integration.
+- Implement continuous oscilloscope streaming.
+- Implement DMA-based oscilloscope acquisition or PIO-based mixed-signal capture.
 - Implement live streaming during acquisition.
 - Change any current firmware behaviour.
 
@@ -66,7 +66,7 @@ Maximum accepted payload length: **512 bytes**.
 | `0x02` | `PICOMSO_MSG_GET_CAPABILITIES` | host → device   | Request capability map            |
 | `0x03` | `PICOMSO_MSG_GET_STATUS`       | host → device   | Request device status             |
 | `0x04` | `PICOMSO_MSG_SET_MODE`         | host → device   | Set operating mode                |
-| `0x05` | `PICOMSO_MSG_REQUEST_CAPTURE`  | host → device   | Perform one full logic capture    |
+| `0x05` | `PICOMSO_MSG_REQUEST_CAPTURE`  | host → device   | Perform one full one-shot capture |
 | `0x06` | `PICOMSO_MSG_READ_DATA_BLOCK`  | host → device   | Read one finalized capture chunk  |
 | `0x80` | `PICOMSO_MSG_ACK`              | device → host   | Successful control-plane response |
 | `0x81` | `PICOMSO_MSG_ERROR`            | device → host   | Error response                    |
@@ -201,7 +201,11 @@ if the mode value is not one of the defined values.
 
 **Response:** `ACK` on success.
 
-**Semantics:** This command is the capture request. In logic mode the device:
+**Semantics:** This command is the capture request. The device performs a
+finite one-shot capture in the active mode, stores the completed result, and
+only then acknowledges the request.
+
+In logic mode the device:
 
 1. starts a one-shot logic capture
 2. retains pre-trigger samples in a circular buffer
@@ -211,7 +215,14 @@ if the mode value is not one of the defined values.
 5. finalizes and stores the completed capture
 6. only then acknowledges the request
 
-After the `ACK`, the host reads the stored capture through repeated
+In oscilloscope mode the device currently performs the same finite
+request-sized acquisition model using ADC input 0 (GPIO 26), stores raw
+little-endian 16-bit ADC samples, and exposes them only after completion
+through repeated `READ_DATA_BLOCK` requests. `pre_trigger_samples` is accepted
+for protocol compatibility but does not yet enable a separate analog-trigger
+algorithm.
+
+After the `ACK`, the host reads the stored completed capture through repeated
 `READ_DATA_BLOCK` requests.
 
 ---
@@ -237,6 +248,12 @@ fixed at 64 bytes, but the total capture length is request-defined by the
 preceding `REQUEST_CAPTURE` command. Each logic sample is a little-endian
 16-bit snapshot of GPIO 0..15.
 
+**Oscilloscope payload:** In oscilloscope mode the device returns the next
+fixed-size chunk from the completed stored capture buffer. Each sample is a
+little-endian 16-bit raw ADC conversion from ADC input 0 (GPIO 26). The
+transport chunk size remains fixed at 64 bytes and no live acquisition data is
+exposed during capture.
+
 **Transport note:**  The request arrives as a vendor OUT control transfer on
 EP0.  The DATA_BLOCK response is sent over EP6 IN (BULK IN), establishing the
 first split between control-plane (EP0) and data-plane (BULK IN).  No BULK OUT
@@ -250,11 +267,11 @@ The protocol implementation handles all defined commands through both the dummy
 transport (testing) and the real USB transport backend
 (`firmware/transport/usb/`).  The following constraints still apply:
 
-- **Logic capture only.** `REQUEST_CAPTURE` / `READ_DATA_BLOCK` implement the
-  logic-analyzer path only. Oscilloscope capture is still out of scope.
 - **No streaming.** Acquisition completes before any readout begins.
 - **Fixed transport chunk, variable capture length.** `READ_DATA_BLOCK` returns
   fixed-size chunks, but the full capture size comes from `REQUEST_CAPTURE`.
+- **No oscilloscope-specific trigger model yet.** Scope mode accepts the same
+  request shape, but does not yet implement a separate analog trigger path.
 - **Static capabilities.**  `GET_CAPABILITIES` always returns
   `PICOMSO_CAP_LOGIC | PICOMSO_CAP_SCOPE` regardless of the connected
   hardware.

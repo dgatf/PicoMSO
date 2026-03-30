@@ -100,7 +100,7 @@ typedef enum {
     PICOMSO_MSG_GET_CAPABILITIES  = 0x02,
     PICOMSO_MSG_GET_STATUS        = 0x03,
     PICOMSO_MSG_SET_MODE          = 0x04,
-    PICOMSO_MSG_REQUEST_CAPTURE   = 0x05, /**< Perform one full logic capture request */
+    PICOMSO_MSG_REQUEST_CAPTURE   = 0x05, /**< Perform one full one-shot capture request */
     PICOMSO_MSG_READ_DATA_BLOCK   = 0x06, /**< Read one chunk from the finalized capture buffer */
 
     /* Responses (device → host) */

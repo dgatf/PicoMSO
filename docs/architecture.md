@@ -244,9 +244,9 @@ the sole owner of this instance; no hardware back-end reads or writes it.
 
 | Protocol command | capture_controller operation                  |
 |------------------|-----------------------------------------------|
-| `GET_STATUS`     | Reads mode via `capture_controller_get_mode`; refreshes logic capture state via `logic_capture_get_state` |
-| `SET_MODE`       | Writes mode via `capture_controller_set_mode`; resets the logic capture backend |
-| `REQUEST_CAPTURE`| Sets controller state to `RUNNING`, performs the full logic capture, then returns to `IDLE` |
+| `GET_STATUS`     | Reads mode via `capture_controller_get_mode`; refreshes the active backend state |
+| `SET_MODE`       | Writes mode via `capture_controller_set_mode`; resets stored capture state for both backends |
+| `REQUEST_CAPTURE`| Sets controller state to `RUNNING`, performs the full one-shot capture for the active mode, then returns to `IDLE` |
 | `GET_INFO`       | No capture_controller interaction (static)    |
 | `GET_CAPABILITIES` | No capture_controller interaction (static) |
 
@@ -254,16 +254,16 @@ The protocol layer owns **control-plane state only**:
 
 - It can change the selected mode (`LOGIC`, `OSCILLOSCOPE`, `UNSET`).
 - It reflects the current capture state (`IDLE` / `RUNNING`).
-- It does **not** implement oscilloscope capture, configure ADC, or redesign
-  the USB transport path.
+- It does **not** implement continuous oscilloscope streaming or redesign the
+  USB transport path.
 
-The protocol layer now owns the control transition for the new logic-only
+The protocol layer now owns the control transition for the new one-shot
 capture flow:
 
-- `SET_MODE(LOGIC)` resets prior capture state and selects the backend.
+- `SET_MODE(...)` resets prior capture state and selects the backend.
 - `REQUEST_CAPTURE` transitions the controller to `RUNNING`, performs the full
-  one-shot capture, finalizes the stored result, and returns the controller to
-  `IDLE`.
+  one-shot capture for the selected mode, finalizes the stored result, and
+  returns the controller to `IDLE`.
 - `READ_DATA_BLOCK` only reads from the finalized stored capture.
 
 ### What Remains Unchanged
@@ -271,8 +271,10 @@ capture flow:
 - `logic_analyzer_rp2040` continues to use its SUMP-over-CDC protocol.
 - `oscilloscope_rp2040` continues to use its custom USB bulk protocol.
 - Neither project includes or links `firmware/protocol/`.
-- The new firmware path now includes a logic-only request/complete/readout capture flow.
-- Oscilloscope capture, legacy firmware capture pipelines, and USB framing remain unchanged.
+- The new firmware path now includes request/complete/readout capture flows for
+  both logic and oscilloscope mode.
+- The oscilloscope path now remains one-shot only; legacy firmware capture
+  pipelines and USB framing remain unchanged.
 
 ---
 

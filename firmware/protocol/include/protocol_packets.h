@@ -133,7 +133,7 @@ typedef struct {
  * REQUEST_CAPTURE  (PICOMSO_MSG_REQUEST_CAPTURE = 0x05)
  *
  * Request:  picomso_request_capture_request_t
- *   Starts one full logic-analyzer capture. The device performs the complete
+ *   Starts one full one-shot capture for the active mode. The device performs the complete
  *   one-shot acquisition before acknowledging the command. The completed
  *   capture remains stored for later READ_DATA_BLOCK requests.
  *
