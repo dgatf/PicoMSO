@@ -5,5 +5,6 @@ project(PicoMSOFirmware LANGUAGES C CXX)
 add_subdirectory(common)
 add_subdirectory(protocol)
 add_subdirectory(transport)
+add_subdirectory(integration)
 add_subdirectory(mixed_signal)
 
