@@ -1,16 +1,18 @@
-# PicoMSO Protocol Specification (Phase 0 Skeleton)
+# PicoMSO Protocol Specification (Phase 0)
 
-This document describes the initial, transport-agnostic protocol skeleton
-introduced in `firmware/protocol/`.  The scope is intentionally limited:
-only four commands are defined, the wire format is fully specified, and the
-implementation is a placeholder that returns static values.
+This document describes the transport-agnostic protocol layer introduced in
+`firmware/protocol/`.  The scope is intentionally limited: only four commands
+are defined, the wire format is fully specified, and `GET_STATUS` / `SET_MODE`
+now delegate to a real `capture_controller_t` instance instead of returning
+static placeholders.
 
 ---
 
 ## Scope and Intentional Limitations
 
-This phase establishes the **wire format** and **command vocabulary** for a
-future unified PicoMSO host protocol.  It does **not**:
+This phase establishes the **wire format**, **command vocabulary**, and
+**control-plane state management** for the future unified PicoMSO host
+protocol.  It does **not**:
 
 - Replace the existing SUMP protocol used by `logic_analyzer_rp2040`.
 - Replace the existing custom USB binary protocol used by `oscilloscope_rp2040`.
@@ -176,6 +178,33 @@ Used when the device encounters an error.  `msg_type` = `0x81`.
 
 **Response:** `ACK` on success, or `ERROR` with `PICOMSO_STATUS_ERR_BAD_MODE`
 if the mode value is not one of the defined values.
+
+**Effect on capture_controller:** A successful `SET_MODE` calls
+`capture_controller_set_mode()` on the protocol layer's internal
+`capture_controller_t` instance.  The new mode is immediately visible to
+subsequent `GET_STATUS` requests.  The command does **not** start or stop
+any capture hardware; real capture initiation is deferred to a future phase.
+
+---
+
+## Current Limitations
+
+The protocol implementation is a **Phase 0** integration.  The following
+constraints apply until a full transport adapter and hardware back-end are
+wired in:
+
+- **No real capture start/stop.**  `SET_MODE` updates the mode tracked by
+  `capture_controller_t` only.  No ADC, PIO, or DMA operation is triggered.
+- **Capture state is always `IDLE`.**  The `capture_state` field in
+  `GET_STATUS` responses reflects `capture_controller_t.state`, which
+  remains `CAPTURE_IDLE` because nothing in this phase sets it to
+  `CAPTURE_RUNNING`.
+- **Static capabilities.**  `GET_CAPABILITIES` always returns
+  `PICOMSO_CAP_LOGIC | PICOMSO_CAP_SCOPE` regardless of the connected
+  hardware.
+- **Static firmware identifier.**  `GET_INFO` always returns `"PicoMSO-0.1"`.
+- **No USB transport.**  The protocol layer operates on raw byte buffers.
+  Wiring those buffers to a USB endpoint is a future task.
 
 ---
 

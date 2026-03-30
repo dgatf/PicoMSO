@@ -8,6 +8,10 @@ target_include_directories(picomso_protocol
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-# The protocol layer is transport-agnostic and depends only on the C
-# standard library (string.h / stdint.h).  No Pico SDK, USB, PIO, ADC,
-# or DMA headers are used here.
+# The protocol layer is transport-agnostic: no USB, PIO, ADC, or DMA
+# dependency.  It links picomso_common solely to access capture_controller,
+# which is a hardware-free value object tracking mode and capture state.
+target_link_libraries(picomso_protocol
+    PUBLIC
+        picomso_common
+)
