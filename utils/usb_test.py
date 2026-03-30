@@ -38,6 +38,12 @@ PICOMSO_PACKET_MAGIC = 0x4D53
 PICOMSO_VER_MAJOR = 0x00
 PICOMSO_VER_MINOR = 0x03
 PICOMSO_DATA_BLOCK_SIZE = 64
+LOGIC_SAMPLE_BYTES = 2
+MIN_MULTI_BLOCK_COUNT = 2
+DEFAULT_TOTAL_SAMPLES = 1000
+DEFAULT_PRE_TRIGGER_SAMPLES = 128
+DEFAULT_TIMEOUT_MS = 2000
+DEFAULT_CAPTURE_TIMEOUT_MS = 10000
 
 PICOMSO_MODE_LOGIC = 0x01
 PICOMSO_CAPTURE_IDLE = 0x00
@@ -83,7 +89,7 @@ def build_packet(msg_type: int, seq: int = 1, payload: bytes = b"") -> bytes:
     return header + payload
 
 
-def send_control_packet(dev, packet: bytes, timeout_ms: int = 2000):
+def send_control_packet(dev, packet: bytes, timeout_ms: int = DEFAULT_TIMEOUT_MS):
     written = dev.ctrl_transfer(
         BM_REQUEST_OUT,
         BREQUEST_OUT,
@@ -96,7 +102,7 @@ def send_control_packet(dev, packet: bytes, timeout_ms: int = 2000):
         raise RuntimeError(f"Short control write: wrote {written}, expected {len(packet)}")
 
 
-def read_bulk_packet(dev, size: int = 256, timeout_ms: int = 2000) -> bytes:
+def read_bulk_packet(dev, size: int = 256, timeout_ms: int = DEFAULT_TIMEOUT_MS) -> bytes:
     data = dev.read(EP_BULK_IN, size, timeout=timeout_ms)
     return bytes(data)
 
@@ -156,6 +162,8 @@ def decode_error(info):
         return "malformed error payload"
     status = payload[0]
     msg_len = payload[1]
+    if 2 + msg_len > len(payload):
+        raise RuntimeError("error msg_len exceeds payload size")
     message = payload[2:2 + msg_len].decode("utf-8", errors="replace")
     return f"status=0x{status:02X} message='{message}'"
 
@@ -169,7 +177,15 @@ def expect_msg_type(info, expected_type: int, context: str):
         )
 
 
-def send_request(dev, name: str, msg_type: int, seq: int, payload: bytes, read_size: int = 256, timeout_ms: int = 2000):
+def send_request(
+    dev,
+    name: str,
+    msg_type: int,
+    seq: int,
+    payload: bytes,
+    read_size: int = 256,
+    timeout_ms: int = DEFAULT_TIMEOUT_MS,
+):
     packet = build_packet(msg_type, seq=seq, payload=payload)
     send_control_packet(dev, packet, timeout_ms=timeout_ms)
     resp = read_bulk_packet(dev, size=read_size, timeout_ms=timeout_ms)
@@ -179,7 +195,10 @@ def send_request(dev, name: str, msg_type: int, seq: int, payload: bytes, read_s
 
 
 def parse_logic_samples(data: bytes):
-    return [struct.unpack_from("<H", data, offset)[0] for offset in range(0, len(data) - (len(data) % 2), 2)]
+    return [
+        struct.unpack_from("<H", data, offset)[0]
+        for offset in range(0, len(data) - (len(data) % LOGIC_SAMPLE_BYTES), LOGIC_SAMPLE_BYTES)
+    ]
 
 
 def get_info(dev, seq: int):
@@ -288,7 +307,7 @@ def read_data_block(dev, seq: int):
 
 
 def read_completed_capture(dev, start_seq: int, total_samples: int):
-    expected_total_bytes = total_samples * 2
+    expected_total_bytes = total_samples * LOGIC_SAMPLE_BYTES
     received = bytearray()
     seq = start_seq
     expected_block_id = 0
@@ -319,12 +338,12 @@ def read_completed_capture(dev, start_seq: int, total_samples: int):
             f"Capture length mismatch: received {len(received)} bytes, expected {expected_total_bytes}"
         )
 
-    if expected_total_bytes > PICOMSO_DATA_BLOCK_SIZE and expected_block_id < 2:
+    if expected_total_bytes > PICOMSO_DATA_BLOCK_SIZE and expected_block_id < MIN_MULTI_BLOCK_COUNT:
         raise RuntimeError("Expected multi-chunk readout but received fewer than two data blocks")
 
     print(
         f"Verified completed capture readout: {len(received)} bytes "
-        f"({len(received) // 2} samples) across {expected_block_id} chunk(s)"
+        f"({len(received) // LOGIC_SAMPLE_BYTES} samples) across {expected_block_id} chunk(s)"
     )
     return bytes(received), seq
 
@@ -336,19 +355,19 @@ def parse_args():
     parser.add_argument(
         "--total-samples",
         type=int,
-        default=1000,
+        default=DEFAULT_TOTAL_SAMPLES,
         help="Total number of logic samples to request and verify",
     )
     parser.add_argument(
         "--pre-trigger-samples",
         type=int,
-        default=128,
+        default=DEFAULT_PRE_TRIGGER_SAMPLES,
         help="Requested pre-trigger sample count",
     )
     parser.add_argument(
         "--capture-timeout-ms",
         type=int,
-        default=10000,
+        default=DEFAULT_CAPTURE_TIMEOUT_MS,
         help="USB timeout for REQUEST_CAPTURE completion ACK",
     )
     parser.add_argument(
