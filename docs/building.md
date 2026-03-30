@@ -1,58 +1,59 @@
-# Building During the Transition
+# Building
 
-## Current Build Entry Points
+## Firmware Build Entry Points
 
-During the transition, the existing firmware projects continue to build from their original imported source trees:
+Both firmware projects build from their own source trees.  Each one pulls in
+`firmware/common/` as a CMake subdirectory, so no separate step is required to
+build the shared library first.
 
-- `logic_analyzer_rp2040/src/CMakeLists.txt`
-- `oscilloscope_rp2040/src/CMakeLists.txt`
+Set `PICO_SDK_PATH` to the root of your Pico SDK clone before running these
+commands.
 
-This keeps include paths, source layout, and project-specific build assumptions unchanged while the shared architecture is still being defined.
-
----
-
-## Existing Firmware Builds
-
-### Logic analyzer
+### Logic Analyzer
 
 ```bash
-cmake -S logic_analyzer_rp2040/src -B build/logic_analyzer
+PICO_SDK_PATH=/path/to/pico-sdk \
+  cmake -S logic_analyzer_rp2040/src -B build/logic_analyzer
 cmake --build build/logic_analyzer
 ```
+
+Produces `build/logic_analyzer/logic_analyzer.elf` and
+`build/logic_analyzer/logic_analyzer.uf2`.
 
 ### Oscilloscope
 
 ```bash
-cmake -S oscilloscope_rp2040/src -B build/oscilloscope
+PICO_SDK_PATH=/path/to/pico-sdk \
+  cmake -S oscilloscope_rp2040/src -B build/oscilloscope
 cmake --build build/oscilloscope
 ```
 
-Both builds require a valid Pico SDK setup, including `PICO_SDK_PATH`.
+Produces `build/oscilloscope/oscilloscope.elf` and
+`build/oscilloscope/oscilloscope.uf2`.
 
 ---
 
-## Transitional Firmware Scaffold
+## Shared Library (`firmware/common`)
 
-The new `firmware/` tree now has a lightweight CMake scaffold so shared modules can be added incrementally without changing the imported projects first.
+`firmware/common/` is included automatically by both project builds via:
 
-```bash
-cmake -S firmware -B build/firmware
-cmake --build build/firmware
+```cmake
+add_subdirectory(../../firmware/common ${CMAKE_BINARY_DIR}/picomso_common)
 ```
 
-At this stage, that scaffold only defines placeholder interface libraries:
+It is **not** intended to be built standalone because it depends on Pico SDK
+targets (`pico_stdlib`, `hardware_uart`, `hardware_gpio`) that are only
+available once `pico_sdk_init()` has been called by a project build.
 
-- `picomso_firmware_common`
-- `picomso_firmware_protocol`
-- `picomso_firmware_mixed_signal`
-
-These placeholders provide named destinations for future shared code without changing the current firmware binaries.
+The placeholder `firmware/protocol/` and `firmware/mixed_signal/` subdirectories
+remain INTERFACE-only libraries reserved for future use.
 
 ---
 
 ## Migration Guidance
 
-- Do not move code into `firmware/common/` until dependency impact is understood
-- Do not redirect existing project CMake files to the new scaffold prematurely
-- Prefer adding wrappers or small shared helpers before consolidating major modules
+- Code in `firmware/common/` is real, shared, Pico SDK–dependent source
+- Both project builds link against `picomso_common` and inherit its include paths
+- Add to `firmware/common/` only when code is clearly identical across both projects
+- Protocol handlers, capture backends, and transport layers remain project-specific
 
