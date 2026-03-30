@@ -402,3 +402,74 @@ cmake --build build/oscilloscope
 The `firmware/CMakeLists.txt` entry point (which builds all sub-libraries
 together) is reserved for future mixed-signal integration and is not used by
 the individual project builds.
+
+---
+
+## USB Transport Backend (`firmware/transport/usb/`)
+
+### Origin
+
+The PicoMSO USB transport backend is a direct adaptation of the custom RP2040
+USB library already used in the `oscilloscope_rp2040` codebase.  It does **not**
+use TinyUSB or any other external USB stack.  It drives the RP2040 USB hardware
+directly through the `hardware/structs/usb.h` register map provided by the
+Pico SDK.
+
+### File Roles
+
+| File | Role | Classification |
+|------|------|----------------|
+| `usb_common.h` | USB standard constants, packed descriptor structs (`usb_setup_packet`, `usb_device_descriptor`, etc.) | **Generic USB library** |
+| `usb.h` | Public API declarations: `usb_device_init`, `usb_is_configured`, `usb_init_transfer`, `usb_continue_transfer`, `usb_cancel_transfer`, `usb_get_endpoint_configuration`, `usb_get_address` | **Generic USB library** |
+| `usb.c` | USB device driver: IRQ handler (`isr_usbctrl`), endpoint setup, descriptor handling, buffer management | **Generic USB library** |
+| `usb_config.h` | PicoMSO endpoint addresses, packet-size constants, `usb_endpoint_configuration` and `usb_device_configuration` structs; static USB descriptors with PicoMSO product strings | **PicoMSO-specific configuration** |
+| `usb_config.c` | Instantiates `dev_config` (the `usb_device_configuration`) and `ep0_buf`; forward-declares `control_transfer_handler` | **PicoMSO-specific configuration** |
+
+`usb_config.c` is `#include`d directly by `usb.c` (not compiled as a separate
+translation unit).  This matches the design used in `oscilloscope_rp2040`.
+
+### Separation Principle
+
+- **Generic USB library (`usb.c`, `usb.h`, `usb_common.h`)** — contains no
+  project-specific strings, IDs, or endpoint counts.  These files can be reused
+  unchanged for any RP2040 USB device that adopts this architecture.
+- **PicoMSO-specific configuration (`usb_config.h`, `usb_config.c`)** — defines
+  the PicoMSO USB descriptor tree (vendor/product strings, VID/PID, endpoint
+  layout).  Adapting for a new device requires changing only these two files.
+
+### Application Responsibility
+
+The application layer that links against `picomso_usb_transport` must define:
+
+```c
+void control_transfer_handler(uint8_t *buf,
+                               volatile struct usb_setup_packet *pkt,
+                               uint8_t stage);
+```
+
+This callback is invoked by the USB driver on every control transfer stage
+(SETUP, DATA, STATUS).  It is how the application layer handles vendor-specific
+USB commands.
+
+### CMake Target
+
+```cmake
+# Provided by firmware/transport/usb/CMakeLists.txt
+# Requires Pico SDK to be initialised by the parent project.
+target_link_libraries(my_app picomso_usb_transport)
+```
+
+The target links `hardware_irq`, `hardware_resets`, and `pico_stdlib`.
+It does **not** link TinyUSB or any other USB middleware.
+
+### Build Limitations
+
+`picomso_usb_transport` is guarded by `PICO_SDK_INITIALIZED` in
+`firmware/transport/CMakeLists.txt`.  It is therefore only built when the
+parent project has called `pico_sdk_init()`.  The existing
+`logic_analyzer_rp2040` and `oscilloscope_rp2040` entry points are not
+affected; neither includes `firmware/transport/usb/` in their build graphs.
+
+The USB transport backend is not yet wired to `picomso_transport`,
+`picomso_integration`, or any capture pipeline.  That wiring is deferred to
+a future phase when a concrete PicoMSO firmware entry point is added.
