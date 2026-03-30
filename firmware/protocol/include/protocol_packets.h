@@ -129,6 +129,47 @@ typedef struct {
     uint8_t mode; /**< picomso_device_mode_t */
 } __attribute__((packed)) picomso_set_mode_request_t;
 
+/* -----------------------------------------------------------------------
+ * READ_DATA_BLOCK  (PICOMSO_MSG_READ_DATA_BLOCK = 0x05)
+ *
+ * Request:  No payload (header.length == 0).
+ *   Asks the device to return one block of sample data via the BULK IN
+ *   endpoint.  In this phase the device returns a fixed dummy payload;
+ *   no real capture hardware is involved.
+ *
+ * Response: picomso_data_block_response_t  (msg_type = PICOMSO_MSG_DATA_BLOCK)
+ *   The response is delivered over the BULK IN endpoint (EP6_IN).  The
+ *   control plane remains on EP0; this response is the first data-plane
+ *   packet in the PicoMSO protocol.
+ *
+ *   NOTE: This phase sends a fixed dummy/sample payload only.
+ *   Real capture hardware (ADC, PIO, DMA) is out of scope.
+ * ----------------------------------------------------------------------- */
+
+/**
+ * READ_DATA_BLOCK carries no request payload.
+ * The host simply sends a header with msg_type = PICOMSO_MSG_READ_DATA_BLOCK
+ * and header.length = 0.
+ */
+
+/**
+ * DATA_BLOCK response payload.
+ *
+ * Offset   Size        Field       Description
+ *   0        1         block_id    Monotonically incrementing block counter.
+ *   1        2         data_len    Byte count of the following sample data.
+ *   3      data_len    data        Raw sample bytes (dummy in this phase).
+ *
+ * The full response wire format is:
+ *   picomso_packet_header_t  (8 bytes, msg_type = PICOMSO_MSG_DATA_BLOCK)
+ *   picomso_data_block_response_t
+ */
+typedef struct {
+    uint8_t  block_id; /**< Monotonically incrementing block counter       */
+    uint16_t data_len; /**< Byte count of the data[] field that follows    */
+    uint8_t  data[PICOMSO_DATA_BLOCK_SIZE]; /**< Sample bytes (dummy)      */
+} __attribute__((packed)) picomso_data_block_response_t;
+
 #ifdef __cplusplus
 }
 #endif

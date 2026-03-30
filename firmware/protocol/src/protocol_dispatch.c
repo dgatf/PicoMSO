@@ -188,3 +188,51 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
             return PICOMSO_STATUS_ERR_BAD_MODE;
     }
 }
+
+/* -----------------------------------------------------------------------
+ * READ_DATA_BLOCK handler
+ *
+ * Returns one fixed dummy data block via PICOMSO_MSG_DATA_BLOCK.
+ *
+ * The payload is a 64-byte ramp pattern (bytes 0x00..0x3F) stored as a
+ * compile-time constant array.  No real capture hardware (ADC, PIO, DMA)
+ * is involved.  The block_id field increments with each successful call
+ * so that the host can detect dropped or repeated blocks.
+ *
+ * Thread-safety: this handler, like all handlers in this file, assumes a
+ * single-threaded polling context (the main loop in usb_control_plane/main.c).
+ * No locking is applied.
+ *
+ * This is Phase 1 data-plane: dummy/sample payload only.
+ * ----------------------------------------------------------------------- */
+
+picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *hdr,
+                                                const uint8_t                 *payload,
+                                                picomso_response_t            *resp)
+{
+    (void)payload; /* READ_DATA_BLOCK carries no request payload */
+
+    /* Fixed ramp pattern: 0x00, 0x01, …, 0x3F.
+     * Initialised once; copied into each response block. */
+    static const uint8_t s_ramp[PICOMSO_DATA_BLOCK_SIZE] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+        0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+        0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
+        0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+        0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
+    };
+
+    static uint8_t s_block_id = 0u;
+
+    picomso_data_block_response_t blk;
+    blk.block_id = s_block_id++;
+    blk.data_len = (uint16_t)PICOMSO_DATA_BLOCK_SIZE;
+    memcpy(blk.data, s_ramp, PICOMSO_DATA_BLOCK_SIZE);
+
+    build_response(hdr, PICOMSO_MSG_DATA_BLOCK,
+                   &blk, (uint16_t)sizeof(blk), resp);
+    return PICOMSO_STATUS_OK;
+}

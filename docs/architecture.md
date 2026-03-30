@@ -189,10 +189,32 @@ unified PicoMSO host protocol.  It defines:
   byte buffer and routes it to the appropriate per-command handler.
 - Helper functions to build ACK and ERROR response packets.
 
-Phase 0 handles four commands: `GET_INFO`, `GET_CAPABILITIES`,
-`GET_STATUS`, and `SET_MODE`.  `GET_STATUS` reads live mode and state from
-`capture_controller_t`; `SET_MODE` writes to it.  `GET_INFO` and
-`GET_CAPABILITIES` return static values.
+Phase 1 handles five commands: `GET_INFO`, `GET_CAPABILITIES`,
+`GET_STATUS`, `SET_MODE`, and `READ_DATA_BLOCK` (new in Phase 1).
+`GET_STATUS` reads live mode and state from `capture_controller_t`;
+`SET_MODE` writes to it.  `GET_INFO` and `GET_CAPABILITIES` return static
+values.  `READ_DATA_BLOCK` returns a 64-byte dummy data block via the
+`PICOMSO_MSG_DATA_BLOCK` (0x82) response type over BULK IN.
+
+### Control-Plane / Data-Plane Split (Phase 1)
+
+Phase 1 introduces the **first data-plane path** in the PicoMSO protocol:
+
+| Plane         | Transport   | Endpoint | Direction       | Commands                                 |
+|---------------|-------------|----------|-----------------|------------------------------------------|
+| Control-plane | Vendor OUT  | EP0      | host → device   | GET_INFO, GET_CAPABILITIES, GET_STATUS, SET_MODE, READ_DATA_BLOCK |
+| Data-plane    | BULK IN     | EP6_IN   | device → host   | DATA_BLOCK response (msg_type 0x82)      |
+
+All **requests** still arrive as vendor OUT control transfers on EP0.  The
+`READ_DATA_BLOCK` response, however, is the first response to carry sample
+data rather than a control-plane ACK or ERROR.  It uses `msg_type = 0x82`
+(`PICOMSO_MSG_DATA_BLOCK`) so the host can distinguish data-plane responses
+from control-plane responses.
+
+No new endpoint, descriptor, or hardware peripheral is added.  The existing
+EP6_IN BULK IN path is reused for data delivery.  The protocol layer remains
+fully transport-agnostic: it never imports USB headers or references endpoint
+addresses.
 
 ### Relationship to Transport
 
@@ -414,7 +436,8 @@ Host (vendor OUT control transfer on EP0)
 
 Capture data streaming is **out of scope**: the `capture_controller_t`
 state changes triggered by `SET_MODE` are not propagated to any ADC, PIO,
-or DMA peripheral in this phase.
+or DMA peripheral in this phase.  `READ_DATA_BLOCK` returns a fixed dummy
+payload; no real capture hardware is used.
 
 ### Dummy-Transport Flow (testing / architecture validation)
 
