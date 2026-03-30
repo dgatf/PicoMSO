@@ -277,20 +277,106 @@ byte buffers.  It is intentionally transport-agnostic:
 ### Relationship to Protocol
 
 The protocol layer (`firmware/protocol/`) operates entirely on raw byte
-buffers returned by `picomso_dispatch()`.  A future integration layer will:
+buffers returned by `picomso_dispatch()`.  The integration layer
+(`firmware/integration/`) performs the coupling:
 
 1. Call `transport_receive()` to read an incoming packet from the wire.
 2. Pass the buffer to `picomso_dispatch()`.
 3. Call `transport_send()` to write the response back to the wire.
 
 The protocol layer itself never calls into `firmware/transport/` directly;
-that coupling belongs to the integration / application layer.
+that coupling lives exclusively in `firmware/integration/`.
 
-### No Concrete Backend Yet
+### Phase 0 Backend: Dummy/Mock Only
 
-Phase 0 ships only the abstraction.  No USB CDC adapter, no USB bulk
-adapter, and no UART adapter exist yet.  The function-pointer slots in
-`transport_interface_t` are left for future backend modules to fill.
+Phase 0 ships the abstraction plus one concrete backend: the dummy/mock
+transport defined in `firmware/integration/include/dummy_transport.h`.
+It uses two in-memory byte arrays to simulate send and receive without any
+hardware or OS dependency.  No USB CDC adapter, no USB bulk adapter, and
+no UART adapter exist yet.
+
+---
+
+## Integration Layer (`firmware/integration/`)
+
+### Role
+
+`firmware/integration/` is the thin glue between the transport abstraction
+and the protocol dispatch layer.  It owns:
+
+- **`integration_ctx_t`** – a small context holding a pointer to the
+  caller-supplied `transport_ctx_t`.
+- **`integration_init()`** – binds a transport context to an integration
+  context; performs no I/O.
+- **`integration_process_one()`** – executes one full receive → dispatch →
+  send cycle.
+- **`dummy_transport_state_t`** + **`dummy_transport_iface`** – the
+  Phase 0 in-memory mock backend.
+
+### Dependencies
+
+| Module               | Used for                                               |
+|----------------------|--------------------------------------------------------|
+| `picomso_transport`  | `transport_ctx_t`, `transport_receive`, `transport_send` |
+| `picomso_protocol`   | `picomso_dispatch`, `picomso_response_t`               |
+
+The integration layer has **no** dependency on:
+
+| Concern              | Not present in `firmware/integration/`              |
+|----------------------|-----------------------------------------------------|
+| ADC / PIO / DMA      | No hardware peripherals                             |
+| USB / UART / SPI     | No real wire transport                              |
+| Logic-analyzer FW    | Not linked or included                              |
+| Oscilloscope FW      | Not linked or included                              |
+| Pico SDK (direct)    | Pulled in transitively only through `picomso_common`|
+
+### Control-Plane Flow
+
+```
+[ Host packet bytes ]
+        │
+        ▼
+  transport_receive()          ← dummy_transport_iface.receive()
+        │                         copies pre-loaded rx_buf bytes
+        ▼
+  picomso_dispatch()           ← validates header, routes to handler
+        │                         handler reads/writes capture_controller_t
+        ▼
+  transport_send()             ← dummy_transport_iface.send()
+        │                         stores response in tx_buf
+        ▼
+[ Response bytes in tx_buf ]
+```
+
+The `capture_controller_t` instance that `GET_STATUS` and `SET_MODE` read
+and write lives inside `firmware/protocol/src/protocol_dispatch.c`.  The
+integration layer never touches it directly; all control-plane mutations go
+through `picomso_dispatch()`.
+
+### Usage Sketch
+
+```c
+/* 1. Prepare the dummy transport. */
+dummy_transport_state_t  dummy_state;
+transport_ctx_t          transport;
+dummy_transport_init(&dummy_state);
+transport_init(&transport, &dummy_transport_iface, &dummy_state);
+
+/* 2. Initialise the integration context. */
+integration_ctx_t ctx;
+integration_init(&ctx, &transport);
+
+/* 3. Pre-load an incoming packet (e.g. a GET_STATUS request). */
+const uint8_t packet[] = { ... };
+dummy_transport_set_rx(&dummy_state, packet, sizeof(packet));
+
+/* 4. Process one packet: receive → dispatch → send. */
+integration_process_one(&ctx);
+
+/* 5. Inspect the response. */
+size_t resp_len;
+const uint8_t *resp = dummy_transport_get_tx(&dummy_state, &resp_len);
+```
 
 ---
 

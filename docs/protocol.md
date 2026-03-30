@@ -203,8 +203,11 @@ wired in:
   `PICOMSO_CAP_LOGIC | PICOMSO_CAP_SCOPE` regardless of the connected
   hardware.
 - **Static firmware identifier.**  `GET_INFO` always returns `"PicoMSO-0.1"`.
-- **No USB transport.**  The protocol layer operates on raw byte buffers.
-  Wiring those buffers to a USB endpoint is a future task.
+- **Transport is dummy/mock only.**  The integration layer (`firmware/integration/`)
+  connects the protocol and transport layers using an in-memory dummy backend
+  (`dummy_transport_iface`).  No USB CDC adapter, no USB bulk adapter, and no
+  UART adapter have been implemented in Phase 0.  Real wire transport remains
+  a future task.
 
 ---
 
@@ -222,16 +225,31 @@ A separate transport abstraction layer (`firmware/transport/`) provides the
 `transport_interface_t` / `transport_ctx_t` types and the helper functions
 `transport_send()` / `transport_receive()`.  The protocol layer does **not**
 depend on `firmware/transport/`; both layers are independent and are
-connected only at the application / integration level.
+connected only through `firmware/integration/`.
+
+## End-to-End Flow (Phase 0)
+
+The full path a request takes in Phase 0:
+
+```
+Host packet → dummy_transport_iface.receive()
+           → integration_process_one()
+           → picomso_dispatch()
+           → per-command handler (reads/writes capture_controller_t)
+           → picomso_response_t filled
+           → dummy_transport_iface.send()
+           → response bytes in dummy tx_buf
+```
+
+The `integration_process_one()` function in `firmware/integration/src/integration.c`
+is the single point that performs all three steps (receive → dispatch → send).
 
 The caller is responsible for:
-1. Reading bytes from whichever transport is in use (USB, UART, SPI, …)
-   via `transport_receive()` or directly.
-2. Passing them to `picomso_dispatch()`.
-3. Writing `resp.buf[0 .. resp.used-1]` back to the transport via
-   `transport_send()` or directly.
+1. Pre-loading the dummy transport's receive buffer via
+   `dummy_transport_set_rx()`.
+2. Calling `integration_process_one()`.
+3. Reading the response via `dummy_transport_get_tx()`.
 
-**No concrete wire transport exists yet.**  `firmware/transport/` defines
-the abstraction only; no USB CDC adapter, no USB bulk adapter, and no UART
-adapter have been implemented in Phase 0.  The protocol layer therefore
-remains untested against real hardware until a backend is supplied.
+**No real wire transport exists in Phase 0.**  The transport backend is
+intentionally limited to the dummy/mock implementation.  Real hardware
+transport (USB CDC, USB bulk, UART) is deferred to a future phase.
