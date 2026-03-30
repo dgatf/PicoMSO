@@ -56,6 +56,54 @@ logic-analyzer sources.
 
 ---
 
+## Shared Capture Controller (`firmware/common/capture_controller`)
+
+### Role
+
+`capture_controller_t` is a minimal, backend-agnostic value object that records
+*which* capture subsystem is active and *what state* it is currently in.  It
+provides a single canonical place for the two shared concepts that are safe to
+express at the common layer:
+
+| Field   | Type              | Meaning                                          |
+|---------|-------------------|--------------------------------------------------|
+| `mode`  | `capture_mode_t`  | Which backend is selected (logic / oscilloscope) |
+| `state` | `capture_state_t` | Whether a capture is idle or running             |
+
+### What It Owns
+
+- `capture_mode_t` — `CAPTURE_MODE_UNSET`, `CAPTURE_MODE_LOGIC`,
+  `CAPTURE_MODE_OSCILLOSCOPE`
+- `capture_state_t` — `CAPTURE_IDLE`, `CAPTURE_RUNNING` (already in `types.h`)
+- `capture_controller_t` — struct holding exactly those two fields
+- Five inline-equivalent helper functions: `capture_controller_init`,
+  `capture_controller_set_mode`, `capture_controller_set_state`,
+  `capture_controller_get_mode`, `capture_controller_get_state`
+
+### What Remains Backend-Specific
+
+The controller deliberately does **not** manage:
+
+| Concern                  | Location                          |
+|--------------------------|-----------------------------------|
+| Hardware init (ADC, PIO) | `oscilloscope.c` / `capture.c`    |
+| DMA channel config       | `oscilloscope.c` / `capture.c`    |
+| Trigger execution        | `capture.c` (PIO-based)           |
+| Sample buffers           | `oscilloscope.c` / `capture.c`    |
+| USB / protocol handling  | `protocol.c`, `protocol_sump.c`   |
+| Clock management         | each `main.c`                     |
+
+### Why Intentionally Minimal
+
+Both firmware projects already have working, independently tested capture
+pipelines.  Introducing shared state management for concerns such as DMA,
+ADC, or USB framing would require behaviour-changing rewrites with significant
+risk and no near-term benefit.  The controller exists solely to give future
+mixed-signal code (and tests) a stable, hardware-free handle on the shared
+concepts of *mode* and *state* without touching any running code paths.
+
+---
+
 ## What Remains Duplicated and Why
 
 ### `config_t` (project-specific runtime configuration)

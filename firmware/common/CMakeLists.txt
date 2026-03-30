@@ -1,5 +1,6 @@
 add_library(picomso_common STATIC
     src/debug.c
+    src/capture_controller.c
 )
 
 target_include_directories(picomso_common
