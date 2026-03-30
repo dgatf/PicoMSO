@@ -28,14 +28,13 @@ extern "C" {
 
 #include "types.h"
 
-#define LOGIC_CAPTURE_BLOCK_BYTES          64u
-#define LOGIC_CAPTURE_TOTAL_SAMPLES        32u
-#define LOGIC_CAPTURE_PRE_TRIGGER_SAMPLES  16u
+#define LOGIC_CAPTURE_BLOCK_BYTES  64u
+#define LOGIC_CAPTURE_MAX_SAMPLES  100000u
 
 void logic_capture_reset(void);
-void logic_capture_arm(void);
+bool logic_capture_start(const capture_config_t *config);
 capture_state_t logic_capture_get_state(void);
-bool logic_capture_read_block(uint8_t *block_id, uint8_t *data, uint16_t *data_len);
+bool logic_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len);
 
 #ifdef __cplusplus
 }

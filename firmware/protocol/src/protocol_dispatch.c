@@ -23,12 +23,12 @@
  * a response packet into the supplied picomso_response_t buffer and
  * return the appropriate picomso_status_t.
  *
- * GET_STATUS and SET_MODE delegate to a module-level capture_controller_t
+ * GET_STATUS, SET_MODE, and REQUEST_CAPTURE delegate to a module-level capture_controller_t
  * instance so that the protocol layer reflects real capture mode/state.
  * GET_INFO and GET_CAPABILITIES continue to return static values.
  *
  * The handlers remain transport-agnostic. The only concrete capture dependency
- * is the logic-analyzer backend used by READ_DATA_BLOCK.
+ * is the logic-analyzer backend used by REQUEST_CAPTURE and READ_DATA_BLOCK.
  */
 
 #include "protocol.h"
@@ -190,8 +190,8 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
             return PICOMSO_STATUS_OK;
 
         case PICOMSO_MODE_LOGIC:
-            logic_capture_arm();
-            capture_controller_set_state(&s_capture_ctrl, logic_capture_get_state());
+            logic_capture_reset();
+            capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
             capture_controller_set_mode(&s_capture_ctrl, (capture_mode_t)req.mode);
             picomso_write_ack(hdr->seq, resp);
             return PICOMSO_STATUS_OK;
@@ -211,14 +211,76 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
 }
 
 /* -----------------------------------------------------------------------
+ * REQUEST_CAPTURE handler
+ *
+ * Performs the full one-shot logic capture synchronously. The completed
+ * capture is stored in the backend and only becomes visible through later
+ * READ_DATA_BLOCK calls once acquisition is finished.
+ * ----------------------------------------------------------------------- */
+
+picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *hdr,
+                                                const uint8_t                 *payload,
+                                                picomso_response_t            *resp)
+{
+    picomso_request_capture_request_t req;
+    capture_config_t capture_config = {
+        .total_samples = 0u,
+        .rate = 0u,
+        .pre_trigger_samples = 0u,
+        .channels = 16u,
+        .trigger = {
+            {
+                .is_enabled = true,
+                .pin = 0u,
+                .match = TRIGGER_TYPE_EDGE_HIGH
+            },
+            { .is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW },
+            { .is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW },
+            { .is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW },
+        }
+    };
+
+    if (capture_controller_get_mode(&s_capture_ctrl) != CAPTURE_MODE_LOGIC) {
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE,
+                            "logic mode not active", resp);
+        return PICOMSO_STATUS_ERR_BAD_MODE;
+    }
+
+    if (hdr->length < (uint16_t)sizeof(req)) {
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN,
+                            "REQUEST_CAPTURE payload too short", resp);
+        return PICOMSO_STATUS_ERR_BAD_LEN;
+    }
+
+    memcpy(&req, payload, sizeof(req));
+    if (req.total_samples == 0u || req.total_samples > LOGIC_CAPTURE_MAX_SAMPLES ||
+        req.pre_trigger_samples > req.total_samples) {
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN,
+                            "invalid capture sizing", resp);
+        return PICOMSO_STATUS_ERR_BAD_LEN;
+    }
+
+    capture_config.total_samples = req.total_samples;
+    capture_config.pre_trigger_samples = req.pre_trigger_samples;
+
+    capture_controller_set_state(&s_capture_ctrl, CAPTURE_RUNNING);
+    if (!logic_capture_start(&capture_config)) {
+        capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN,
+                            "capture request failed", resp);
+        return PICOMSO_STATUS_ERR_UNKNOWN;
+    }
+
+    capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
+    picomso_write_ack(hdr->seq, resp);
+    return PICOMSO_STATUS_OK;
+}
+
+/* -----------------------------------------------------------------------
  * READ_DATA_BLOCK handler
  *
- * Returns one finalized logic-analyzer data block via PICOMSO_MSG_DATA_BLOCK.
- *
- * The block is captured lazily from GPIO 0..15 when the logic mode has been
- * armed via SET_MODE(LOGIC): 16 pre-trigger samples are held in a circular
- * ring, a rising edge on GPIO 0 finalizes the trigger point, and 15 more
- * post-trigger samples are appended for a one-shot 64-byte upload.
+ * Returns one fixed-size chunk from the completed logic-analyzer capture.
+ * No acquisition runs in this handler; it only reads from finalized storage.
  *
  * Thread-safety: this handler, like all handlers in this file, assumes a
  * single-threaded polling context (the main loop in usb_control_plane/main.c).
@@ -237,9 +299,10 @@ picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *h
     }
 
     picomso_data_block_response_t blk;
+    memset(&blk, 0, sizeof(blk));
     if (!logic_capture_read_block(&blk.block_id, blk.data, &blk.data_len)) {
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN,
-                            "logic capture not armed", resp);
+                            "no finalized capture data", resp);
         return PICOMSO_STATUS_ERR_UNKNOWN;
     }
 

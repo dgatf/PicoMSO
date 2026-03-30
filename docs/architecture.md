@@ -189,12 +189,13 @@ unified PicoMSO host protocol.  It defines:
   byte buffer and routes it to the appropriate per-command handler.
 - Helper functions to build ACK and ERROR response packets.
 
-Phase 1 handles five commands: `GET_INFO`, `GET_CAPABILITIES`,
-`GET_STATUS`, `SET_MODE`, and `READ_DATA_BLOCK` (new in Phase 1).
+Phase 1 handles six commands: `GET_INFO`, `GET_CAPABILITIES`,
+`GET_STATUS`, `SET_MODE`, `REQUEST_CAPTURE`, and `READ_DATA_BLOCK`.
 `GET_STATUS` reads live mode and state from `capture_controller_t`;
-`SET_MODE` writes to it and arms the logic-capture backend in logic mode.
-`GET_INFO` and `GET_CAPABILITIES` return static values. `READ_DATA_BLOCK`
-returns a finalized 64-byte logic-capture block via the
+`SET_MODE` writes to it and resets any prior logic capture state.
+`REQUEST_CAPTURE` performs a full request-defined logic capture and stores the
+completed result. `GET_INFO` and `GET_CAPABILITIES` return static values.
+`READ_DATA_BLOCK` returns fixed-size chunks from that finalized capture via the
 `PICOMSO_MSG_DATA_BLOCK` (0x82) response type over BULK IN.
 
 ### Control-Plane / Data-Plane Split (Phase 1)
@@ -203,7 +204,7 @@ Phase 1 introduces the **first data-plane path** in the PicoMSO protocol:
 
 | Plane         | Transport   | Endpoint | Direction       | Commands                                 |
 |---------------|-------------|----------|-----------------|------------------------------------------|
-| Control-plane | Vendor OUT  | EP0      | host → device   | GET_INFO, GET_CAPABILITIES, GET_STATUS, SET_MODE, READ_DATA_BLOCK |
+| Control-plane | Vendor OUT  | EP0      | host → device   | GET_INFO, GET_CAPABILITIES, GET_STATUS, SET_MODE, REQUEST_CAPTURE, READ_DATA_BLOCK |
 | Data-plane    | BULK IN     | EP6_IN   | device → host   | DATA_BLOCK response (msg_type 0x82)      |
 
 All **requests** still arrive as vendor OUT control transfers on EP0.  The
@@ -244,7 +245,8 @@ the sole owner of this instance; no hardware back-end reads or writes it.
 | Protocol command | capture_controller operation                  |
 |------------------|-----------------------------------------------|
 | `GET_STATUS`     | Reads mode via `capture_controller_get_mode`; refreshes logic capture state via `logic_capture_get_state` |
-| `SET_MODE`       | Writes mode via `capture_controller_set_mode`; arms or resets the logic capture backend |
+| `SET_MODE`       | Writes mode via `capture_controller_set_mode`; resets the logic capture backend |
+| `REQUEST_CAPTURE`| Sets controller state to `RUNNING`, performs the full logic capture, then returns to `IDLE` |
 | `GET_INFO`       | No capture_controller interaction (static)    |
 | `GET_CAPABILITIES` | No capture_controller interaction (static) |
 
@@ -255,17 +257,21 @@ The protocol layer owns **control-plane state only**:
 - It does **not** implement oscilloscope capture, configure ADC, or redesign
   the USB transport path.
 
-The capture state (`RUNNING` / `IDLE`) is read-only from the protocol
-layer's perspective.  A future transport adapter or higher-level controller
-would call `capture_controller_set_state` on the same instance to signal
-that a capture has started or stopped.
+The protocol layer now owns the control transition for the new logic-only
+capture flow:
+
+- `SET_MODE(LOGIC)` resets prior capture state and selects the backend.
+- `REQUEST_CAPTURE` transitions the controller to `RUNNING`, performs the full
+  one-shot capture, finalizes the stored result, and returns the controller to
+  `IDLE`.
+- `READ_DATA_BLOCK` only reads from the finalized stored capture.
 
 ### What Remains Unchanged
 
 - `logic_analyzer_rp2040` continues to use its SUMP-over-CDC protocol.
 - `oscilloscope_rp2040` continues to use its custom USB bulk protocol.
 - Neither project includes or links `firmware/protocol/`.
-- The new firmware path now includes a logic-only one-shot capture block.
+- The new firmware path now includes a logic-only request/complete/readout capture flow.
 - Oscilloscope capture, legacy firmware capture pipelines, and USB framing remain unchanged.
 
 ---
@@ -437,10 +443,10 @@ Host (vendor OUT control transfer on EP0)
                                    EP6 IN bulk transfer → host
 ```
 
-Capture data streaming is **out of scope**: the `capture_controller_t`
-state changes triggered by `SET_MODE` are not propagated to any ADC, PIO,
-or DMA peripheral in this phase.  `READ_DATA_BLOCK` returns a fixed dummy
-payload; no real capture hardware is used.
+Live capture streaming is **out of scope**. In the current logic-only path,
+`REQUEST_CAPTURE` performs the full one-shot acquisition first and stores the
+completed result. `READ_DATA_BLOCK` then returns fixed-size chunks from that
+finalized capture buffer; it does not expose live acquisition data.
 
 ### Dummy-Transport Flow (testing / architecture validation)
 

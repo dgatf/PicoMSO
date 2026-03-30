@@ -10,11 +10,11 @@ Current contents:
 Current scope is intentionally narrow:
 
 - logic-analyzer capture only
-- armed state
+- request-defined total capture length
 - circular pre-trigger buffering
 - trigger detection
 - finite post-trigger acquisition
-- finalized one-shot block upload through the existing protocol/USB path
+- finalized one-shot storage plus fixed-size readout through the existing protocol/USB path
 
 Still out of scope here:
 

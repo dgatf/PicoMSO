@@ -22,26 +22,20 @@
 
 #include <string.h>
 
-#define LOGIC_CAPTURE_CHANNELS             16u
-#define LOGIC_CAPTURE_POST_TRIGGER_SAMPLES 15u
+#define LOGIC_CAPTURE_CHANNELS              16u
 #define LOGIC_CAPTURE_TRIGGER_TIMEOUT_SPINS 4096u
-#define LOGIC_CAPTURE_TRIGGER_COUNT        4u
-
-#if LOGIC_CAPTURE_TOTAL_SAMPLES != ((LOGIC_CAPTURE_BLOCK_BYTES / sizeof(uint16_t)))
-#error "logic capture block size must match the number of 16-bit samples"
-#endif
+#define LOGIC_CAPTURE_TRIGGER_COUNT         4u
 
 typedef enum logic_capture_phase_t {
     LOGIC_CAPTURE_PHASE_DISARMED = 0,
-    LOGIC_CAPTURE_PHASE_ARMED,
-    LOGIC_CAPTURE_PHASE_TRIGGERED,
+    LOGIC_CAPTURE_PHASE_CAPTURING,
     LOGIC_CAPTURE_PHASE_FINALIZED
 } logic_capture_phase_t;
 
-static const capture_config_t s_logic_capture_config = {
-    .total_samples = LOGIC_CAPTURE_TOTAL_SAMPLES,
-    .rate = 0,
-    .pre_trigger_samples = LOGIC_CAPTURE_PRE_TRIGGER_SAMPLES,
+static capture_config_t s_logic_capture_config = {
+    .total_samples = 0u,
+    .rate = 0u,
+    .pre_trigger_samples = 0u,
     .channels = LOGIC_CAPTURE_CHANNELS,
     .trigger = {
         {
@@ -56,70 +50,155 @@ static const capture_config_t s_logic_capture_config = {
 };
 
 static logic_capture_phase_t s_phase = LOGIC_CAPTURE_PHASE_DISARMED;
-static uint8_t s_capture_block[LOGIC_CAPTURE_BLOCK_BYTES];
-static uint8_t s_capture_id = 0u;
-static uint8_t s_current_block_id = 0u;
+static uint16_t s_capture_words[LOGIC_CAPTURE_MAX_SAMPLES];
+static uint32_t s_capture_read_offset_bytes = 0u;
 
 static uint16_t logic_capture_read_sample(void);
 static bool logic_capture_triggered(uint16_t prev_sample, uint16_t sample);
 static bool logic_capture_trigger_match(trigger_t trigger, uint16_t prev_sample, uint16_t sample);
 static void logic_capture_configure_inputs(void);
-static void logic_capture_finalize(void);
+static void logic_capture_reverse_range(uint16_t *buf, uint32_t start, uint32_t end);
+static void logic_capture_rotate_left(uint16_t *buf, uint32_t length, uint32_t shift);
 
 void logic_capture_reset(void)
 {
+    s_logic_capture_config.total_samples = 0u;
+    s_logic_capture_config.pre_trigger_samples = 0u;
+    s_capture_read_offset_bytes = 0u;
     s_phase = LOGIC_CAPTURE_PHASE_DISARMED;
 }
 
-void logic_capture_arm(void)
+bool logic_capture_start(const capture_config_t *config)
 {
+    uint32_t pre_trigger_count;
+    uint32_t post_trigger_count;
+    uint16_t prev_sample;
+    uint16_t trigger_sample;
+    uint32_t ring_head = 0u;
+    uint32_t ring_count = 0u;
+    bool triggered = false;
+
+    if (config == NULL) {
+        return false;
+    }
+
+    if (config->total_samples == 0u || config->total_samples > LOGIC_CAPTURE_MAX_SAMPLES) {
+        return false;
+    }
+
+    if (config->pre_trigger_samples > config->total_samples) {
+        return false;
+    }
+
+    s_logic_capture_config = *config;
+    s_logic_capture_config.channels = LOGIC_CAPTURE_CHANNELS;
+    s_capture_read_offset_bytes = 0u;
+
     logic_capture_configure_inputs();
-    s_phase = LOGIC_CAPTURE_PHASE_ARMED;
+    s_phase = LOGIC_CAPTURE_PHASE_CAPTURING;
+
+    pre_trigger_count = s_logic_capture_config.pre_trigger_samples;
+    post_trigger_count = s_logic_capture_config.total_samples - pre_trigger_count;
+
+    prev_sample = logic_capture_read_sample();
+    trigger_sample = prev_sample;
+
+    for (uint32_t spin = 0u; spin < LOGIC_CAPTURE_TRIGGER_TIMEOUT_SPINS; ++spin) {
+        const uint16_t sample = logic_capture_read_sample();
+
+        if (logic_capture_triggered(prev_sample, sample)) {
+            trigger_sample = sample;
+            triggered = true;
+            break;
+        }
+
+        if (pre_trigger_count > 0u) {
+            s_capture_words[ring_head] = sample;
+            ring_head = (ring_head + 1u) % pre_trigger_count;
+            if (ring_count < pre_trigger_count) {
+                ++ring_count;
+            }
+        }
+
+        prev_sample = sample;
+    }
+
+    if (!triggered && post_trigger_count > 0u) {
+        /* Complete the requested one-shot capture even if no trigger edge
+         * arrives by using the current GPIO snapshot as the first post-trigger
+         * sample stored in the finalized capture buffer. */
+        trigger_sample = logic_capture_read_sample();
+    }
+
+    if (pre_trigger_count > 0u) {
+        if (ring_count == pre_trigger_count && ring_head != 0u) {
+            logic_capture_rotate_left(s_capture_words, pre_trigger_count, ring_head);
+        } else if (ring_count < pre_trigger_count) {
+            const uint32_t missing_pre_trigger = pre_trigger_count - ring_count;
+            memmove(&s_capture_words[missing_pre_trigger], &s_capture_words[0], ring_count * sizeof(uint16_t));
+            memset(&s_capture_words[0], 0, missing_pre_trigger * sizeof(uint16_t));
+        }
+    }
+
+    if (post_trigger_count > 0u) {
+        s_capture_words[pre_trigger_count] = trigger_sample;
+        for (uint32_t i = 1u; i < post_trigger_count; ++i) {
+            s_capture_words[pre_trigger_count + i] = logic_capture_read_sample();
+        }
+    }
+
+    s_phase = LOGIC_CAPTURE_PHASE_FINALIZED;
+    return true;
 }
 
 capture_state_t logic_capture_get_state(void)
 {
-    switch (s_phase) {
-        case LOGIC_CAPTURE_PHASE_ARMED:
-        case LOGIC_CAPTURE_PHASE_TRIGGERED:
-            return CAPTURE_RUNNING;
-
-        case LOGIC_CAPTURE_PHASE_DISARMED:
-        case LOGIC_CAPTURE_PHASE_FINALIZED:
-        default:
-            return CAPTURE_IDLE;
+    if (s_phase == LOGIC_CAPTURE_PHASE_CAPTURING) {
+        return CAPTURE_RUNNING;
     }
+
+    return CAPTURE_IDLE;
 }
 
-bool logic_capture_read_block(uint8_t *block_id, uint8_t *data, uint16_t *data_len)
+bool logic_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len)
 {
+    const uint32_t total_bytes = s_logic_capture_config.total_samples * sizeof(uint16_t);
+    uint32_t remaining_bytes;
+    uint16_t chunk_bytes;
+
     if (block_id == NULL || data == NULL || data_len == NULL) {
         return false;
     }
 
-    if (s_phase == LOGIC_CAPTURE_PHASE_DISARMED) {
+    if (s_phase != LOGIC_CAPTURE_PHASE_FINALIZED) {
         return false;
     }
 
-    if (s_phase != LOGIC_CAPTURE_PHASE_FINALIZED) {
-        logic_capture_finalize();
+    if (s_capture_read_offset_bytes >= total_bytes) {
+        return false;
     }
 
-    memcpy(data, s_capture_block, sizeof(s_capture_block));
-    *block_id = s_current_block_id;
-    *data_len = (uint16_t)sizeof(s_capture_block);
+    remaining_bytes = total_bytes - s_capture_read_offset_bytes;
+    chunk_bytes =
+        (remaining_bytes > LOGIC_CAPTURE_BLOCK_BYTES) ? LOGIC_CAPTURE_BLOCK_BYTES : (uint16_t)remaining_bytes;
+
+    memcpy(data, ((const uint8_t *)s_capture_words) + s_capture_read_offset_bytes, chunk_bytes);
+    *block_id = (uint16_t)(s_capture_read_offset_bytes / LOGIC_CAPTURE_BLOCK_BYTES);
+    *data_len = chunk_bytes;
+    s_capture_read_offset_bytes += chunk_bytes;
+
     return true;
 }
 
 static uint16_t logic_capture_read_sample(void)
 {
-    const uint32_t pin_mask = (UINT32_C(1) << s_logic_capture_config.channels) - 1u;
+    const uint32_t pin_mask = (UINT32_C(1) << LOGIC_CAPTURE_CHANNELS) - 1u;
     return (uint16_t)(gpio_get_all() & pin_mask);
 }
 
 static bool logic_capture_triggered(uint16_t prev_sample, uint16_t sample)
 {
-    for (uint i = 0; i < LOGIC_CAPTURE_TRIGGER_COUNT; ++i) {
+    for (uint32_t i = 0u; i < LOGIC_CAPTURE_TRIGGER_COUNT; ++i) {
         if (!s_logic_capture_config.trigger[i].is_enabled) {
             continue;
         }
@@ -158,70 +237,36 @@ static bool logic_capture_trigger_match(trigger_t trigger, uint16_t prev_sample,
 
 static void logic_capture_configure_inputs(void)
 {
-    for (uint pin = 0u; pin < s_logic_capture_config.channels; ++pin) {
+    for (uint pin = 0u; pin < LOGIC_CAPTURE_CHANNELS; ++pin) {
         gpio_init(pin);
         gpio_set_dir(pin, false);
         gpio_pull_down(pin);
     }
 }
 
-static void logic_capture_finalize(void)
+static void logic_capture_reverse_range(uint16_t *buf, uint32_t start, uint32_t end)
 {
-    uint16_t pre_trigger_ring[LOGIC_CAPTURE_PRE_TRIGGER_SAMPLES];
-    uint16_t capture_words[LOGIC_CAPTURE_TOTAL_SAMPLES];
-    uint16_t prev_sample = logic_capture_read_sample();
-    uint16_t trigger_sample = prev_sample;
-    uint ring_head = 0u;
-    uint ring_count = 0u;
-    bool triggered = false;
+    while (start < end) {
+        const uint16_t tmp = buf[start];
+        buf[start] = buf[end];
+        buf[end] = tmp;
+        ++start;
+        --end;
+    }
+}
 
-    for (uint spin = 0u; spin < LOGIC_CAPTURE_TRIGGER_TIMEOUT_SPINS; ++spin) {
-        const uint16_t sample = logic_capture_read_sample();
-
-        if (logic_capture_triggered(prev_sample, sample)) {
-            trigger_sample = sample;
-            triggered = true;
-            break;
-        }
-
-        pre_trigger_ring[ring_head] = sample;
-        ring_head = (ring_head + 1u) % LOGIC_CAPTURE_PRE_TRIGGER_SAMPLES;
-        if (ring_count < LOGIC_CAPTURE_PRE_TRIGGER_SAMPLES) {
-            ++ring_count;
-        }
-
-        prev_sample = sample;
+static void logic_capture_rotate_left(uint16_t *buf, uint32_t length, uint32_t shift)
+{
+    if (length == 0u) {
+        return;
     }
 
-    if (!triggered) {
-        /* Fall back to the current GPIO snapshot so the armed one-shot capture
-         * always completes even when no configured trigger edge arrives. */
-        trigger_sample = logic_capture_read_sample();
+    shift %= length;
+    if (shift == 0u) {
+        return;
     }
 
-    s_phase = LOGIC_CAPTURE_PHASE_TRIGGERED;
-
-    {
-        const uint missing_pre_trigger = LOGIC_CAPTURE_PRE_TRIGGER_SAMPLES - ring_count;
-        uint out_index = 0u;
-
-        for (; out_index < missing_pre_trigger; ++out_index) {
-            capture_words[out_index] = 0u;
-        }
-
-        for (uint i = 0u; i < ring_count; ++i, ++out_index) {
-            const uint src_index = (ring_head + i) % LOGIC_CAPTURE_PRE_TRIGGER_SAMPLES;
-            capture_words[out_index] = pre_trigger_ring[src_index];
-        }
-
-        capture_words[out_index++] = trigger_sample;
-
-        for (uint i = 0u; i < LOGIC_CAPTURE_POST_TRIGGER_SAMPLES; ++i) {
-            capture_words[out_index++] = logic_capture_read_sample();
-        }
-    }
-
-    memcpy(s_capture_block, capture_words, sizeof(s_capture_block));
-    s_current_block_id = s_capture_id++;
-    s_phase = LOGIC_CAPTURE_PHASE_FINALIZED;
+    logic_capture_reverse_range(buf, 0u, shift - 1u);
+    logic_capture_reverse_range(buf, shift, length - 1u);
+    logic_capture_reverse_range(buf, 0u, length - 1u);
 }

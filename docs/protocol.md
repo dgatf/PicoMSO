@@ -1,9 +1,10 @@
 # PicoMSO Protocol Specification (Phase 1)
 
 This document describes the transport-agnostic protocol layer introduced in
-`firmware/protocol/`.  Phase 1 extends Phase 0 with the first minimal
-data-plane command (`READ_DATA_BLOCK`) that exercises the BULK IN path with a
-dummy sample payload.
+`firmware/protocol/`. Phase 1 now includes a concrete logic-analyzer
+request/complete/readout flow: `REQUEST_CAPTURE` performs the full one-shot
+capture, and `READ_DATA_BLOCK` returns fixed-size chunks from the finalized
+stored capture buffer.
 
 ---
 
@@ -17,9 +18,9 @@ future unified PicoMSO host protocol.  It does **not**:
 - Replace the existing custom USB binary protocol used by `oscilloscope_rp2040`.
 - Introduce any USB, CDC, bulk-endpoint, PIO, ADC, or DMA dependency in the
   protocol layer itself.
-- Implement real logic or analog capture.
+- Implement oscilloscope capture.
 - Implement DMA / ADC / PIO integration.
-- Implement streaming (one block per explicit request only).
+- Implement live streaming during acquisition.
 - Change any current firmware behaviour.
 
 Both imported firmware projects remain independently buildable and unchanged.
@@ -31,7 +32,7 @@ Both imported firmware projects remain independently buildable and unchanged.
 | Constant                            | Value | Meaning                                         |
 |-------------------------------------|-------|-------------------------------------------------|
 | `PICOMSO_PROTOCOL_VERSION_MAJOR`    | `0`   | Bump on incompatible wire-format change         |
-| `PICOMSO_PROTOCOL_VERSION_MINOR`    | `2`   | Bump when new commands are added                |
+| `PICOMSO_PROTOCOL_VERSION_MINOR`    | `3`   | Bump when new commands are added                |
 
 The device rejects any packet whose `version_major` differs from its own
 with `PICOMSO_STATUS_ERR_VERSION`.
@@ -65,7 +66,8 @@ Maximum accepted payload length: **512 bytes**.
 | `0x02` | `PICOMSO_MSG_GET_CAPABILITIES` | host → device   | Request capability map            |
 | `0x03` | `PICOMSO_MSG_GET_STATUS`       | host → device   | Request device status             |
 | `0x04` | `PICOMSO_MSG_SET_MODE`         | host → device   | Set operating mode                |
-| `0x05` | `PICOMSO_MSG_READ_DATA_BLOCK`  | host → device   | Request one data-plane block      |
+| `0x05` | `PICOMSO_MSG_REQUEST_CAPTURE`  | host → device   | Perform one full logic capture    |
+| `0x06` | `PICOMSO_MSG_READ_DATA_BLOCK`  | host → device   | Read one finalized capture chunk  |
 | `0x80` | `PICOMSO_MSG_ACK`              | device → host   | Successful control-plane response |
 | `0x81` | `PICOMSO_MSG_ERROR`            | device → host   | Error response                    |
 | `0x82` | `PICOMSO_MSG_DATA_BLOCK`       | device → host   | Data-plane block response         |
@@ -184,13 +186,37 @@ if the mode value is not one of the defined values.
 
 **Effect on capture_controller:** A successful `SET_MODE` calls
 `capture_controller_set_mode()` on the protocol layer's internal
-`capture_controller_t` instance. In logic mode it also arms the concrete
-logic-capture backend, so subsequent `GET_STATUS` requests report
-`CAPTURE_RUNNING` until one capture is finalized and uploaded.
+`capture_controller_t` instance and resets any previously stored logic capture.
 
 ---
 
-### READ_DATA_BLOCK (`0x05`)
+### REQUEST_CAPTURE (`0x05`)
+
+**Request payload:**
+
+| Offset | Size | Field                 | Description                               |
+|--------|------|-----------------------|-------------------------------------------|
+| 0      | 4    | `total_samples`       | Full requested capture length in samples  |
+| 4      | 4    | `pre_trigger_samples` | Requested pre-trigger sample count        |
+
+**Response:** `ACK` on success.
+
+**Semantics:** This command is the capture request. In logic mode the device:
+
+1. starts a one-shot logic capture
+2. retains pre-trigger samples in a circular buffer
+3. detects the trigger
+4. collects the remaining post-trigger samples needed to satisfy the full
+   requested total capture length
+5. finalizes and stores the completed capture
+6. only then acknowledges the request
+
+After the `ACK`, the host reads the stored capture through repeated
+`READ_DATA_BLOCK` requests.
+
+---
+
+### READ_DATA_BLOCK (`0x06`)
 
 **Request payload:** none (`header.length == 0`)
 
@@ -199,16 +225,16 @@ logic-capture backend, so subsequent `GET_STATUS` requests report
 
 **Response payload:**
 
-| Offset      | Size        | Field      | Description                                  |
-|-------------|-------------|------------|----------------------------------------------|
-| 0           | 1           | `block_id` | Monotonically incrementing capture block counter |
-| 1           | 2           | `data_len` | Byte count of the data bytes that follow         |
-| 3           | `data_len`  | `data`     | Raw GPIO sample bytes                            |
+| Offset      | Size        | Field      | Description                                      |
+|-------------|-------------|------------|--------------------------------------------------|
+| 0           | 2           | `block_id` | Monotonically incrementing finalized readout chunk |
+| 2           | 2           | `data_len` | Byte count of the data bytes that follow         |
+| 4           | `data_len`  | `data`     | Raw GPIO sample bytes                            |
 
-**Logic payload:** In logic mode the device returns one finalized 64-byte
-one-shot capture block. The capture is armed by `SET_MODE(LOGIC)`, stores
-16 pre-trigger samples in a circular ring, triggers on a rising edge on
-GPIO 0, then appends 15 post-trigger samples. Each sample is a little-endian
+**Logic payload:** In logic mode the device returns the next fixed-size chunk
+from the completed stored capture buffer. The transport chunk size remains
+fixed at 64 bytes, but the total capture length is request-defined by the
+preceding `REQUEST_CAPTURE` command. Each logic sample is a little-endian
 16-bit snapshot of GPIO 0..15.
 
 **Transport note:**  The request arrives as a vendor OUT control transfer on
@@ -224,13 +250,11 @@ The protocol implementation handles all defined commands through both the dummy
 transport (testing) and the real USB transport backend
 (`firmware/transport/usb/`).  The following constraints still apply:
 
-- **Logic capture only.** `READ_DATA_BLOCK` returns one real 64-byte logic
-  capture block from GPIO 0..15. Oscilloscope capture is still out of scope.
-- **No streaming.**  One block is returned per explicit `READ_DATA_BLOCK`
-  request.  Continuous streaming is out of scope.
-- **Logic re-arm is explicit.** `SET_MODE(LOGIC)` arms a new capture. Repeated
-  `READ_DATA_BLOCK` requests return the same finalized block until logic mode
-  is armed again.
+- **Logic capture only.** `REQUEST_CAPTURE` / `READ_DATA_BLOCK` implement the
+  logic-analyzer path only. Oscilloscope capture is still out of scope.
+- **No streaming.** Acquisition completes before any readout begins.
+- **Fixed transport chunk, variable capture length.** `READ_DATA_BLOCK` returns
+  fixed-size chunks, but the full capture size comes from `REQUEST_CAPTURE`.
 - **Static capabilities.**  `GET_CAPABILITIES` always returns
   `PICOMSO_CAP_LOGIC | PICOMSO_CAP_SCOPE` regardless of the connected
   hardware.
@@ -272,29 +296,40 @@ Host (vendor OUT control transfer on EP0)
 Host ←
 ```
 
-## End-to-End Flow (USB backend – READ_DATA_BLOCK)
+## End-to-End Flow (USB backend – REQUEST_CAPTURE + READ_DATA_BLOCK)
 
-The first data-plane path.  The request still arrives on EP0; the response
-(carrying sample data) is returned over the existing BULK IN endpoint (EP6_IN).
+The capture request and the later readout requests still arrive on EP0; the
+data-carrying response is returned over the existing BULK IN endpoint (EP6_IN).
 No new endpoints, descriptors, or hardware are added.
 
 ```
 Host (vendor OUT control transfer on EP0, msg_type = 0x05)
-           → control_transfer_handler()
-           → static rx_buf in usb_transport.c
-           → integration_process_one()
-           → transport_receive()
-           → picomso_dispatch()
-            → picomso_handle_read_data_block()
-                → logic_capture_read_block()
-                  → pre-trigger ring on GPIO 0..15
-                  → trigger detect on GPIO 0 rising edge
-                  → finite post-trigger capture
-                  → finalized 64-byte block
-            → picomso_response_t filled      [DATA_BLOCK, msg_type = 0x82]
-            → transport_send()              [usb_transport_iface.send]
-            → EP6 IN bulk transfer
-Host ←   (receives DATA_BLOCK response with 64 bytes of GPIO samples)
+            → control_transfer_handler()
+            → static rx_buf in usb_transport.c
+            → integration_process_one()
+            → transport_receive()
+            → picomso_dispatch()
+             → picomso_handle_request_capture()
+                 → logic_capture_start()
+                   → request-defined pre-trigger ring
+                   → trigger detect on GPIO 0 rising edge
+                   → finite post-trigger capture until total_samples is complete
+                   → finalized stored capture buffer
+             → ACK
+
+Host (later vendor OUT control transfer on EP0, msg_type = 0x06)
+            → control_transfer_handler()
+            → static rx_buf in usb_transport.c
+            → integration_process_one()
+            → transport_receive()
+            → picomso_dispatch()
+             → picomso_handle_read_data_block()
+                 → logic_capture_read_block()
+                   → next fixed-size chunk from finalized capture buffer
+             → picomso_response_t filled      [DATA_BLOCK, msg_type = 0x82]
+             → transport_send()              [usb_transport_iface.send]
+             → EP6 IN bulk transfer
+Host ←   (receives DATA_BLOCK response with the next capture chunk)
 ```
 
 See `firmware/examples/usb_control_plane/main.c` for the complete annotated
@@ -309,8 +344,9 @@ validation without hardware:
 Host packet → dummy_transport_iface.receive()
            → integration_process_one()
            → picomso_dispatch()
-           → per-command handler (reads/writes capture_controller_t, or
-                                  builds data block for READ_DATA_BLOCK)
+           → per-command handler (reads/writes capture_controller_t,
+                                  performs REQUEST_CAPTURE, or
+                                  reads finalized data for READ_DATA_BLOCK)
            → picomso_response_t filled
            → dummy_transport_iface.send()
            → response bytes in dummy tx_buf

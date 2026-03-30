@@ -26,20 +26,20 @@
  *   4. Capture controller     (firmware/common/)
  *
  * Control-plane commands handled: GET_INFO, GET_CAPABILITIES,
- * GET_STATUS, SET_MODE.
+ * GET_STATUS, SET_MODE, REQUEST_CAPTURE.
  *
- * Data-plane command handled: READ_DATA_BLOCK.
- *   The host sends READ_DATA_BLOCK as a vendor OUT control transfer on EP0.
- *   In logic mode the device performs a one-shot logic capture on GPIO 0..15:
- *   the capture is armed by SET_MODE(LOGIC), pre-trigger samples are retained
- *   in a circular buffer, a rising edge on GPIO 0 finalizes the trigger point,
- *   and the finalized 64-byte block is returned over the EP6 IN bulk endpoint.
+ * Logic capture flow handled here:
+ *   1. The host selects logic mode with SET_MODE(LOGIC).
+ *   2. The host sends REQUEST_CAPTURE with the requested total sample count.
+ *   3. The device performs the full one-shot logic capture on GPIO 0..15.
+ *   4. Only after capture completion does READ_DATA_BLOCK return fixed-size
+ *      chunks from the finalized stored capture over the EP6 IN bulk endpoint.
  *
  * Out of scope for this example:
  *   - Oscilloscope capture
  *   - Shared logic/scope abstractions beyond this logic path
  *   - SUMP protocol
- *   - Streaming beyond one finalized capture block
+ *   - Live data streaming during acquisition
  *
  * Wire path (control-plane commands):
  *   Host (vendor OUT control transfer on EP0)
@@ -50,17 +50,25 @@
  *     → usb_transport_iface.send()  (EP6 IN bulk transfer)
  *   → Host
  *
- * Wire path (READ_DATA_BLOCK):
- *   Host (vendor OUT control transfer on EP0, READ_DATA_BLOCK = 0x05)
+ * Wire path (REQUEST_CAPTURE + READ_DATA_BLOCK):
+ *   Host (vendor OUT control transfer on EP0, REQUEST_CAPTURE = 0x05)
+ *     → usb_transport_iface.receive()
+ *     → integration_process_one()
+ *     → picomso_dispatch()
+ *     → picomso_handle_request_capture()
+ *       → logic_capture_start()
+ *         → request-defined full capture length
+ *         → circular pre-trigger buffering
+ *         → trigger detect on GPIO 0
+ *         → post-trigger completion
+ *         → finalized stored capture buffer
+ *   Host (later vendor OUT control transfer on EP0, READ_DATA_BLOCK = 0x06)
  *     → usb_transport_iface.receive()
  *     → integration_process_one()
  *     → picomso_dispatch()
  *     → picomso_handle_read_data_block()
  *       → logic_capture_read_block()
- *         → arm-state pre-trigger ring
- *         → trigger detect on GPIO 0
- *         → finite post-trigger sampling
- *         → finalized 64-byte one-shot block
+ *         → next fixed-size chunk from finalized capture
  *     → usb_transport_iface.send()  (EP6 IN bulk transfer, DATA_BLOCK = 0x82)
  *   → Host
  */
@@ -116,9 +124,9 @@ int main(void)
      * application would add sleep_ms() or use interrupt-driven signalling
      * to yield the CPU while idle.
      *
-     * READ_DATA_BLOCK is handled transparently: in logic mode the protocol
-     * layer asks the logic capture backend to finalize one armed capture,
-     * then sends the resulting 64-byte sample block over EP6 IN bulk.
+     * REQUEST_CAPTURE performs the full one-shot acquisition synchronously.
+     * READ_DATA_BLOCK then serves the completed capture buffer in fixed-size
+     * chunks over EP6 IN bulk without exposing live acquisition data.
      */
     while (true) {
         integration_process_one(&integration);
