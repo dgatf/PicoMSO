@@ -26,8 +26,8 @@
  *   - No dependency on USB, CDC, bulk endpoints, PIO, ADC, or DMA.
  *   - No dependency on any specific transport framing layer.
  *   - Callers supply raw byte buffers; the layer parses and dispatches.
- *   - Only the four initial commands are handled: GET_INFO,
- *     GET_CAPABILITIES, GET_STATUS, SET_MODE.
+ *   - The initial commands handled are GET_INFO, GET_CAPABILITIES,
+ *     GET_STATUS, SET_MODE, REQUEST_CAPTURE, and READ_DATA_BLOCK.
  *   - The existing SUMP and oscilloscope protocols are NOT replaced.
  */
 
@@ -49,7 +49,7 @@ extern "C" {
 #define PICOMSO_PROTOCOL_VERSION_MAJOR  0
 
 /** Protocol minor version.  Bump when new commands are added. */
-#define PICOMSO_PROTOCOL_VERSION_MINOR  2
+#define PICOMSO_PROTOCOL_VERSION_MINOR  3
 
 /* -----------------------------------------------------------------------
  * Packet framing constants
@@ -100,7 +100,8 @@ typedef enum {
     PICOMSO_MSG_GET_CAPABILITIES  = 0x02,
     PICOMSO_MSG_GET_STATUS        = 0x03,
     PICOMSO_MSG_SET_MODE          = 0x04,
-    PICOMSO_MSG_READ_DATA_BLOCK   = 0x05, /**< Request a data-plane sample block */
+    PICOMSO_MSG_REQUEST_CAPTURE   = 0x05, /**< Perform one full logic capture request */
+    PICOMSO_MSG_READ_DATA_BLOCK   = 0x06, /**< Read one chunk from the finalized capture buffer */
 
     /* Responses (device → host) */
     PICOMSO_MSG_ACK               = 0x80,
@@ -162,7 +163,7 @@ typedef struct {
  * by this implementation.
  * ----------------------------------------------------------------------- */
 
-/** Size in bytes of the dummy sample payload returned by READ_DATA_BLOCK. */
+/** Size in bytes of each logic-capture payload block returned by READ_DATA_BLOCK. */
 #define PICOMSO_DATA_BLOCK_SIZE  64u
 
 /** Response buffer large enough for any packet this implementation produces. */

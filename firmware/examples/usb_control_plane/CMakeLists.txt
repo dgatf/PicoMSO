@@ -33,6 +33,7 @@ pico_sdk_init()
 # with any other project build.
 
 add_subdirectory(../../common     ${CMAKE_BINARY_DIR}/picomso_common)
+add_subdirectory(../../mixed_signal ${CMAKE_BINARY_DIR}/picomso_mixed_signal)
 add_subdirectory(../../protocol   ${CMAKE_BINARY_DIR}/picomso_protocol)
 add_subdirectory(../../transport  ${CMAKE_BINARY_DIR}/picomso_transport)
 add_subdirectory(../../integration ${CMAKE_BINARY_DIR}/picomso_integration)

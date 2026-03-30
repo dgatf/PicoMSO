@@ -1,11 +1,23 @@
 # firmware/mixed_signal
 
-Planned home for mixed-signal coordination logic that sits above the existing logic and analog capture backends.
+Home for acquisition and capture logic used by the new firmware path.
 
-Expected future responsibilities include:
+Current contents:
 
-- shared capture coordination
-- mixed metadata generation
-- timebase alignment helpers
+- `logic_capture.c` / `logic_capture.h` – a concrete one-shot logic-analyzer
+  capture backend for the `firmware/examples/usb_control_plane` flow
 
-This directory is intentionally a placeholder until the shared interfaces are defined.
+Current scope is intentionally narrow:
+
+- logic-analyzer capture only
+- request-defined total capture length
+- circular pre-trigger buffering
+- trigger detection
+- finite post-trigger acquisition
+- finalized one-shot storage plus fixed-size readout through the existing protocol/USB path
+
+Still out of scope here:
+
+- oscilloscope capture
+- mixed-signal unification
+- shared logic/scope abstractions beyond what the logic path needs today

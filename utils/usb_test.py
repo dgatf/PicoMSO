@@ -23,19 +23,20 @@ PICOMSO_MSG_GET_INFO = 0x01
 PICOMSO_MSG_GET_CAPABILITIES = 0x02
 PICOMSO_MSG_GET_STATUS = 0x03
 PICOMSO_MSG_SET_MODE = 0x04
-PICOMSO_MSG_READ_DATA_BLOCK = 0x05
+PICOMSO_MSG_REQUEST_CAPTURE = 0x05
+PICOMSO_MSG_READ_DATA_BLOCK = 0x06
 
 # Response types used by firmware
 PICOMSO_MSG_ACK = 0x80         # Adjust if protocol.h says otherwise
 PICOMSO_MSG_ERROR = 0x81       # Adjust if protocol.h says otherwise
-PICOMSO_MSG_DATA_BLOCK = 0x06  # Adjust if protocol.h says otherwise
+PICOMSO_MSG_DATA_BLOCK = 0x82
 
 # IMPORTANT:
 # These two values should match protocol.h exactly.
 # Header is known to be 8 bytes and little-endian.
 PICOMSO_PACKET_MAGIC = 0x4D53  # <-- replace with the real value from protocol.h if different
 PICOMSO_VER_MAJOR = 0x00       # <-- replace if different
-PICOMSO_VER_MINOR = 0x02       # <-- replace if different
+PICOMSO_VER_MINOR = 0x03       # <-- replace if different
 
 # Assumed header layout (8 bytes total):
 #   uint16_t magic
@@ -130,6 +131,10 @@ def dump_packet(name: str, packet: bytes):
     }
 
 
+def parse_logic_samples(data: bytes):
+    return [struct.unpack_from("<H", data, offset)[0] for offset in range(0, len(data) - (len(data) % 2), 2)]
+
+
 def get_info(dev):
     packet = build_packet(PICOMSO_MSG_GET_INFO, seq=1, payload=b"")
     send_control_packet(dev, packet)
@@ -177,26 +182,32 @@ def set_mode(dev, mode: int):
     dump_packet("SET_MODE response", resp)
 
 
-def read_data_block(dev):
-    packet = build_packet(PICOMSO_MSG_READ_DATA_BLOCK, seq=5, payload=b"")
+def request_capture(dev, total_samples: int, pre_trigger_samples: int):
+    payload = struct.pack("<II", total_samples, pre_trigger_samples)
+    packet = build_packet(PICOMSO_MSG_REQUEST_CAPTURE, seq=5, payload=payload)
+    send_control_packet(dev, packet)
+    resp = read_bulk_packet(dev, size=128)
+    dump_packet("REQUEST_CAPTURE response", resp)
+
+
+def read_data_block(dev, seq: int):
+    packet = build_packet(PICOMSO_MSG_READ_DATA_BLOCK, seq=seq, payload=b"")
     send_control_packet(dev, packet)
     resp = read_bulk_packet(dev, size=256)
     info = dump_packet("READ_DATA_BLOCK response", resp)
 
     payload = info["payload"]
-    if len(payload) >= 3:
-        block_id = payload[0]
-        (data_len,) = struct.unpack_from("<H", payload, 1)
-        data = payload[3:3 + data_len]
+    if len(payload) >= 4:
+        block_id, data_len = struct.unpack_from("<HH", payload, 0)
+        data = payload[4:4 + data_len]
 
         print(f"Decoded DATA_BLOCK: block_id={block_id} data_len={data_len}")
         print("Data bytes:", list(data))
+        print("Interpreted logic samples (little-endian uint16):")
+        print(parse_logic_samples(data))
+        return data
 
-        expected = bytes(range(min(data_len, 64)))
-        if data[:len(expected)] == expected:
-            print("Ramp pattern OK (0x00..)")
-        else:
-            print("Ramp pattern does NOT match expected dummy payload")
+    return b""
 
 
 def main():
@@ -207,7 +218,18 @@ def main():
         get_status(dev)
         set_mode(dev, 1)  # 1 = PICOMSO_MODE_LOGIC
         get_status(dev)
-        read_data_block(dev)
+        total_samples = 1000
+        request_capture(dev, total_samples=total_samples, pre_trigger_samples=128)
+        get_status(dev)
+
+        total_bytes = total_samples * 2
+        received = bytearray()
+        next_seq = 6
+        while len(received) < total_bytes:
+            received.extend(read_data_block(dev, seq=next_seq))
+            next_seq += 1
+
+        print(f"Total capture bytes received: {len(received)}")
     finally:
         usb.util.release_interface(dev, 0)
         usb.util.dispose_resources(dev)

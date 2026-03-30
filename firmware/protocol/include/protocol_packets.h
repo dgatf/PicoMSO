@@ -130,44 +130,59 @@ typedef struct {
 } __attribute__((packed)) picomso_set_mode_request_t;
 
 /* -----------------------------------------------------------------------
- * READ_DATA_BLOCK  (PICOMSO_MSG_READ_DATA_BLOCK = 0x05)
+ * REQUEST_CAPTURE  (PICOMSO_MSG_REQUEST_CAPTURE = 0x05)
+ *
+ * Request:  picomso_request_capture_request_t
+ *   Starts one full logic-analyzer capture. The device performs the complete
+ *   one-shot acquisition before acknowledging the command. The completed
+ *   capture remains stored for later READ_DATA_BLOCK requests.
+ *
+ * Response: ACK packet (no additional payload) on success.
+ * ----------------------------------------------------------------------- */
+
+typedef struct {
+    uint32_t total_samples;       /**< Full requested capture length in samples */
+    uint32_t pre_trigger_samples; /**< Requested pre-trigger sample count        */
+} __attribute__((packed)) picomso_request_capture_request_t;
+
+/* -----------------------------------------------------------------------
+ * READ_DATA_BLOCK  (PICOMSO_MSG_READ_DATA_BLOCK = 0x06)
  *
  * Request:  No payload (header.length == 0).
- *   Asks the device to return one block of sample data via the BULK IN
- *   endpoint.  In this phase the device returns a fixed dummy payload;
- *   no real capture hardware is involved.
+ *   Asks the device to return one fixed-size chunk from the completed capture
+ *   buffer. Acquisition must already be finished before readout begins.
  *
  * Response: picomso_data_block_response_t  (msg_type = PICOMSO_MSG_DATA_BLOCK)
  *   The response is delivered over the BULK IN endpoint (EP6_IN).  The
  *   control plane remains on EP0; this response is the first data-plane
  *   packet in the PicoMSO protocol.
  *
- *   NOTE: This phase sends a fixed dummy/sample payload only.
- *   Real capture hardware (ADC, PIO, DMA) is out of scope.
+ *   READ_DATA_BLOCK does not expose live acquisition data.
+ *   It only serves bytes from a finalized stored capture.
  * ----------------------------------------------------------------------- */
 
 /**
  * READ_DATA_BLOCK carries no request payload.
  * The host simply sends a header with msg_type = PICOMSO_MSG_READ_DATA_BLOCK
- * and header.length = 0.
+ * and header.length = 0 to receive the next chunk from the stored capture.
  */
 
 /**
  * DATA_BLOCK response payload.
  *
  * Offset   Size        Field       Description
- *   0        1         block_id    Monotonically incrementing block counter.
- *   1        2         data_len    Byte count of the following sample data.
- *   3      data_len    data        Raw sample bytes (dummy in this phase).
+ *   0        2         block_id    Monotonically incrementing block counter.
+ *   2        2         data_len    Byte count of the following sample data.
+ *   4      data_len    data        Raw sample bytes.
  *
  * The full response wire format is:
  *   picomso_packet_header_t  (8 bytes, msg_type = PICOMSO_MSG_DATA_BLOCK)
  *   picomso_data_block_response_t
  */
 typedef struct {
-    uint8_t  block_id; /**< Monotonically incrementing block counter       */
+    uint16_t block_id; /**< Monotonically incrementing block counter       */
     uint16_t data_len; /**< Byte count of the data[] field that follows    */
-    uint8_t  data[PICOMSO_DATA_BLOCK_SIZE]; /**< Sample bytes (dummy)      */
+    uint8_t  data[PICOMSO_DATA_BLOCK_SIZE]; /**< Sample bytes              */
 } __attribute__((packed)) picomso_data_block_response_t;
 
 #ifdef __cplusplus
