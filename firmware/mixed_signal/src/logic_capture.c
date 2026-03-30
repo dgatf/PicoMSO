@@ -25,6 +25,7 @@
 #define LOGIC_CAPTURE_CHANNELS             16u
 #define LOGIC_CAPTURE_POST_TRIGGER_SAMPLES 15u
 #define LOGIC_CAPTURE_TRIGGER_TIMEOUT_SPINS 4096u
+#define LOGIC_CAPTURE_TRIGGER_COUNT        4u
 
 #if LOGIC_CAPTURE_TOTAL_SAMPLES != ((LOGIC_CAPTURE_BLOCK_BYTES / sizeof(uint16_t)))
 #error "logic capture block size must match the number of 16-bit samples"
@@ -118,7 +119,7 @@ static uint16_t logic_capture_read_sample(void)
 
 static bool logic_capture_triggered(uint16_t prev_sample, uint16_t sample)
 {
-    for (uint i = 0; i < 4u; ++i) {
+    for (uint i = 0; i < LOGIC_CAPTURE_TRIGGER_COUNT; ++i) {
         if (!s_logic_capture_config.trigger[i].is_enabled) {
             continue;
         }
@@ -193,6 +194,8 @@ static void logic_capture_finalize(void)
     }
 
     if (!triggered) {
+        /* Fall back to the current GPIO snapshot so the armed one-shot capture
+         * always completes even when no configured trigger edge arrives. */
         trigger_sample = logic_capture_read_sample();
     }
 
