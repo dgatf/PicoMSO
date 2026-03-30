@@ -3,14 +3,11 @@
 # Standalone Pico SDK project that demonstrates connecting the USB
 # transport backend to the integration layer.
 #
-# Prerequisites:
-#   - Pico SDK installed; PICO_SDK_PATH environment variable set.
-#
 # Build (from the repository root):
 #
-#   PICO_SDK_PATH=/path/to/pico-sdk \
-#     cmake -S firmware/examples/usb_control_plane \
-#           -B build/usb_control_plane
+#   git submodule update --init --recursive
+#   cmake -S firmware/examples/usb_control_plane \
+#         -B build/usb_control_plane
 #   cmake --build build/usb_control_plane
 #
 # Produces:
@@ -19,7 +16,20 @@
 
 cmake_minimum_required(VERSION 3.12)
 
-include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
+set(PICO_SDK_PATH "${CMAKE_CURRENT_LIST_DIR}/../../../external/pico-sdk")
+
+if(NOT EXISTS "${PICO_SDK_PATH}/external/pico_sdk_import.cmake")
+    message(FATAL_ERROR
+        "Pico SDK submodule not found.\n"
+        "\n"
+        "Expected at:\n"
+        "  ${PICO_SDK_PATH}\n"
+        "\n"
+        "Please run:\n"
+        "  git submodule update --init --recursive\n")
+endif()
+
+include("${PICO_SDK_PATH}/external/pico_sdk_import.cmake")
 
 project(picomso_usb_control_plane C CXX ASM)
 set(CMAKE_C_STANDARD 11)
