@@ -24,14 +24,16 @@
  *   - the protocol dispatch layer (firmware/protocol/)
  *   - the transport send path     (firmware/transport/)
  *
- * The integration layer is intentionally thin.  It owns no protocol or
- * transport state itself; callers supply an initialised transport_ctx_t.
+ * The integration layer is intentionally thin and transport-agnostic.
+ * It owns no protocol or transport state itself; callers supply an
+ * initialised transport_ctx_t backed by any concrete implementation:
+ *   - dummy_transport_iface  (in-memory mock, no hardware dependency)
+ *   - usb_transport_iface    (real RP2040 USB hardware backend)
  *
- * Phase 0 constraints:
- *   - The only supported transport backend is the dummy/mock backend
- *     defined in dummy_transport.h.
- *   - No USB, UART, PIO, ADC, or DMA dependency.
- *   - No dependency on the logic-analyzer or oscilloscope firmware.
+ * Control-plane scope (this phase):
+ *   - GET_INFO, GET_CAPABILITIES, GET_STATUS, SET_MODE
+ *   - No capture data streaming, no ADC/PIO/DMA operations
+ *   - No dependency on the logic-analyzer or oscilloscope firmware
  */
 
 #ifndef PICOMSO_INTEGRATION_H

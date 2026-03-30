@@ -189,9 +189,9 @@ any capture hardware; real capture initiation is deferred to a future phase.
 
 ## Current Limitations
 
-The protocol implementation is a **Phase 0** integration.  The following
-constraints apply until a full transport adapter and hardware back-end are
-wired in:
+The protocol implementation handles the four defined control-plane commands
+through both the dummy transport (testing) and the real USB transport backend
+(`firmware/transport/usb/`).  The following constraints still apply:
 
 - **No real capture start/stop.**  `SET_MODE` updates the mode tracked by
   `capture_controller_t` only.  No ADC, PIO, or DMA operation is triggered.
@@ -203,11 +203,10 @@ wired in:
   `PICOMSO_CAP_LOGIC | PICOMSO_CAP_SCOPE` regardless of the connected
   hardware.
 - **Static firmware identifier.**  `GET_INFO` always returns `"PicoMSO-0.1"`.
-- **Transport is dummy/mock only.**  The integration layer (`firmware/integration/`)
-  connects the protocol and transport layers using an in-memory dummy backend
-  (`dummy_transport_iface`).  No USB CDC adapter, no USB bulk adapter, and no
-  UART adapter have been implemented in Phase 0.  Real wire transport remains
-  a future task.
+- **Control-plane commands only.**  The USB backend carries commands via
+  vendor OUT control transfers (EP0) and responses via EP6 IN bulk transfers.
+  There is no BULK OUT endpoint and no capture data streaming path in this
+  phase.
 
 ---
 
@@ -227,9 +226,31 @@ A separate transport abstraction layer (`firmware/transport/`) provides the
 depend on `firmware/transport/`; both layers are independent and are
 connected only through `firmware/integration/`.
 
-## End-to-End Flow (Phase 0)
+## End-to-End Flow (USB backend)
 
-The full path a request takes in Phase 0:
+The full path a request takes through the real USB transport backend:
+
+```
+Host (vendor OUT control transfer on EP0)
+           → control_transfer_handler()     [USB driver IRQ callback]
+           → static rx_buf in usb_transport.c
+           → integration_process_one()
+           → transport_receive()            [usb_transport_iface.receive]
+           → picomso_dispatch()
+           → per-command handler (reads/writes capture_controller_t)
+           → picomso_response_t filled
+           → transport_send()              [usb_transport_iface.send]
+           → EP6 IN bulk transfer
+Host ←
+```
+
+See `firmware/examples/usb_control_plane/main.c` for the complete annotated
+entry point that wires these layers together.
+
+## End-to-End Flow (Dummy backend)
+
+The dummy transport path remains available for testing and architecture
+validation without hardware:
 
 ```
 Host packet → dummy_transport_iface.receive()
@@ -241,15 +262,8 @@ Host packet → dummy_transport_iface.receive()
            → response bytes in dummy tx_buf
 ```
 
-The `integration_process_one()` function in `firmware/integration/src/integration.c`
-is the single point that performs all three steps (receive → dispatch → send).
-
 The caller is responsible for:
 1. Pre-loading the dummy transport's receive buffer via
    `dummy_transport_set_rx()`.
 2. Calling `integration_process_one()`.
 3. Reading the response via `dummy_transport_get_tx()`.
-
-**No real wire transport exists in Phase 0.**  The transport backend is
-intentionally limited to the dummy/mock implementation.  Real hardware
-transport (USB CDC, USB bulk, UART) is deferred to a future phase.
