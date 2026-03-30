@@ -190,8 +190,9 @@ unified PicoMSO host protocol.  It defines:
 - Helper functions to build ACK and ERROR response packets.
 
 Phase 0 handles four commands: `GET_INFO`, `GET_CAPABILITIES`,
-`GET_STATUS`, and `SET_MODE`.  Handlers currently return static /
-placeholder values; future phases will wire them to real hardware state.
+`GET_STATUS`, and `SET_MODE`.  `GET_STATUS` reads live mode and state from
+`capture_controller_t`; `SET_MODE` writes to it.  `GET_INFO` and
+`GET_CAPABILITIES` return static values.
 
 ### Relationship to Transport
 
@@ -209,14 +210,31 @@ future transport adapter layer, which will live outside `firmware/protocol/`.
 
 ### Relationship to Capture Controller
 
-`firmware/protocol/` does not currently call `capture_controller_t`
-directly.  The `GET_STATUS` and `SET_MODE` handlers maintain simple
-module-level state variables as placeholders.
+`firmware/protocol/` now links against `firmware/common/` and uses
+`capture_controller_t` as its control-plane state store.
 
-In a future phase the dispatcher will accept a `capture_controller_t *`
-context pointer (or equivalent) so that `GET_STATUS` can read the real
-mode and capture state, and `SET_MODE` can delegate to
-`capture_controller_set_mode()`.
+A static `capture_controller_t` instance lives inside
+`firmware/protocol/src/protocol_dispatch.c`.  The protocol layer is
+the sole owner of this instance; no hardware back-end reads or writes it.
+
+| Protocol command | capture_controller operation                  |
+|------------------|-----------------------------------------------|
+| `GET_STATUS`     | Reads mode via `capture_controller_get_mode`; reads state via `capture_controller_get_state` |
+| `SET_MODE`       | Writes mode via `capture_controller_set_mode` |
+| `GET_INFO`       | No capture_controller interaction (static)    |
+| `GET_CAPABILITIES` | No capture_controller interaction (static) |
+
+The protocol layer owns **control-plane state only**:
+
+- It can change the selected mode (`LOGIC`, `OSCILLOSCOPE`, `UNSET`).
+- It reflects the current capture state (`IDLE` / `RUNNING`).
+- It does **not** start or stop captures, configure ADC/PIO/DMA, or touch
+  any hardware peripheral.
+
+The capture state (`RUNNING` / `IDLE`) is read-only from the protocol
+layer's perspective.  A future transport adapter or higher-level controller
+would call `capture_controller_set_state` on the same instance to signal
+that a capture has started or stopped.
 
 ### What Remains Unchanged
 

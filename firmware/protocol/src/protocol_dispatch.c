@@ -23,15 +23,16 @@
  * a response packet into the supplied picomso_response_t buffer and
  * return the appropriate picomso_status_t.
  *
- * These are placeholder implementations that return static / default
- * values.  Future phases will wire them to real hardware state via the
- * capture_controller and back-end modules.
+ * GET_STATUS and SET_MODE delegate to a module-level capture_controller_t
+ * instance so that the protocol layer reflects real capture mode/state.
+ * GET_INFO and GET_CAPABILITIES continue to return static values.
  *
  * No dependency on any transport (USB, UART, …), PIO, ADC, or DMA.
  */
 
 #include "protocol.h"
 #include "protocol_packets.h"
+#include "capture_controller.h"
 
 #include <string.h>
 
@@ -50,12 +51,17 @@
 #define PICOMSO_STATIC_CAPABILITIES  (PICOMSO_CAP_LOGIC | PICOMSO_CAP_SCOPE)
 
 /* -----------------------------------------------------------------------
- * Placeholder device state.
- * In a future phase this will be driven by capture_controller_t.
+ * Module-level capture controller instance.
+ *
+ * The protocol layer owns control-plane state only.  Starts in
+ * CAPTURE_MODE_UNSET / CAPTURE_IDLE.  No hardware is accessed;
+ * SET_MODE and GET_STATUS operate on this struct alone.
  * ----------------------------------------------------------------------- */
 
-static picomso_device_mode_t   s_current_mode          = PICOMSO_MODE_UNSET;
-static picomso_capture_state_t s_current_capture_state = PICOMSO_CAPTURE_IDLE;
+static capture_controller_t s_capture_ctrl = {
+    .mode  = CAPTURE_MODE_UNSET,
+    .state = CAPTURE_IDLE
+};
 
 /* -----------------------------------------------------------------------
  * Internal helper: build a full response packet.
@@ -143,8 +149,8 @@ picomso_status_t picomso_handle_get_status(const picomso_packet_header_t *hdr,
     (void)payload; /* GET_STATUS carries no request payload */
 
     picomso_status_response_t status;
-    status.mode          = (uint8_t)s_current_mode;
-    status.capture_state = (uint8_t)s_current_capture_state;
+    status.mode          = (uint8_t)capture_controller_get_mode(&s_capture_ctrl);
+    status.capture_state = (uint8_t)capture_controller_get_state(&s_capture_ctrl);
 
     build_response(hdr, PICOMSO_MSG_ACK,
                    &status, (uint16_t)sizeof(status), resp);
@@ -172,7 +178,7 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
         case PICOMSO_MODE_UNSET:
         case PICOMSO_MODE_LOGIC:
         case PICOMSO_MODE_OSCILLOSCOPE:
-            s_current_mode = (picomso_device_mode_t)req.mode;
+            capture_controller_set_mode(&s_capture_ctrl, (capture_mode_t)req.mode);
             picomso_write_ack(hdr->seq, resp);
             return PICOMSO_STATUS_OK;
 
