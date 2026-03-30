@@ -237,7 +237,7 @@ static bool logic_capture_trigger_match(trigger_t trigger, uint16_t prev_sample,
 
 static void logic_capture_configure_inputs(void)
 {
-    for (uint pin = 0u; pin < LOGIC_CAPTURE_CHANNELS; ++pin) {
+    for (uint32_t pin = 0u; pin < LOGIC_CAPTURE_CHANNELS; ++pin) {
         gpio_init(pin);
         gpio_set_dir(pin, false);
         gpio_pull_down(pin);

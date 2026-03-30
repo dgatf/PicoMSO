@@ -131,6 +131,10 @@ def dump_packet(name: str, packet: bytes):
     }
 
 
+def parse_logic_samples(data: bytes):
+    return [struct.unpack_from("<H", data, offset)[0] for offset in range(0, len(data) - (len(data) % 2), 2)]
+
+
 def get_info(dev):
     packet = build_packet(PICOMSO_MSG_GET_INFO, seq=1, payload=b"")
     send_control_packet(dev, packet)
@@ -200,8 +204,7 @@ def read_data_block(dev, seq: int):
         print(f"Decoded DATA_BLOCK: block_id={block_id} data_len={data_len}")
         print("Data bytes:", list(data))
         print("Interpreted logic samples (little-endian uint16):")
-        words = [struct.unpack_from("<H", data, offset)[0] for offset in range(0, len(data) - (len(data) % 2), 2)]
-        print(words)
+        print(parse_logic_samples(data))
         return data
 
     return b""
