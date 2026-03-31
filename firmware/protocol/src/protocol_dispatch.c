@@ -276,11 +276,9 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         return PICOMSO_STATUS_ERR_BAD_MODE;
     }
 
-    if (hdr->length < (uint16_t)sizeof(req)) {
-        if (hdr->length < PICOMSO_REQUEST_CAPTURE_LEGACY_SIZE) {
-            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "REQUEST_CAPTURE payload too short", resp);
-            return PICOMSO_STATUS_ERR_BAD_LEN;
-        }
+    if (hdr->length < PICOMSO_REQUEST_CAPTURE_LEGACY_SIZE) {
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "REQUEST_CAPTURE payload too short", resp);
+        return PICOMSO_STATUS_ERR_BAD_LEN;
     }
 
     if (hdr->length != PICOMSO_REQUEST_CAPTURE_LEGACY_SIZE &&
@@ -289,6 +287,8 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         return PICOMSO_STATUS_ERR_BAD_LEN;
     }
 
+    /* Zero any trigger bytes omitted by the legacy 12-byte payload before we
+     * optionally copy or validate the extended trigger array. */
     memset(&req, 0, sizeof(req));
     memcpy(&req, payload, hdr->length);
     max_samples = (active_mode == CAPTURE_MODE_LOGIC) ? LOGIC_CAPTURE_MAX_SAMPLES : SCOPE_CAPTURE_MAX_SAMPLES;

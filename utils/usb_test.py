@@ -245,7 +245,7 @@ def default_trigger_config():
 
 
 def parse_trigger_spec(spec: str):
-    parts = spec.split(":", 2)
+    parts = spec.split(":")
     if len(parts) != 3:
         raise argparse.ArgumentTypeError(
             "trigger must use SLOT:PIN:MATCH (for example 0:3:edge-high)"
@@ -405,13 +405,11 @@ def request_capture(
         triggers=triggers,
     )
     for index, trigger in enumerate(triggers):
+        enabled = bool(trigger["is_enabled"])
+        match_name = TRIGGER_MATCH_NAMES[trigger["match"]]
         print(
-            "REQUEST_CAPTURE trigger[{index}]: enabled={enabled} pin={pin} match={match}".format(
-                index=index,
-                enabled=bool(trigger["is_enabled"]),
-                pin=trigger["pin"],
-                match=TRIGGER_MATCH_NAMES[trigger["match"]],
-            )
+            f"REQUEST_CAPTURE trigger[{index}]: enabled={enabled} "
+            f"pin={trigger['pin']} match={match_name}"
         )
     info = send_request(
         dev,
