@@ -8,9 +8,22 @@
  * (at your option) any later version.
  */
 
-#include "api.h"
+#include "protocol.h"
 
+#include <stdbool.h>
 #include <string.h>
+
+typedef int (*picomso_logic_samples_cb)(void *user_data, const uint16_t *samples, size_t sample_count);
+
+typedef struct {
+    picomso_protocol_t protocol;
+    picomso_info_response_t info;
+    uint32_t capabilities;
+    unsigned int channel_count;
+    bool is_open;
+    bool logic_mode_active;
+    bool capture_running;
+} picomso_driver_t;
 
 static const char *const logic_channel_names[PICOMSO_DRIVER_CHANNEL_COUNT] = {
     "D0",  "D1",  "D2",  "D3",  "D4",  "D5",  "D6",  "D7",

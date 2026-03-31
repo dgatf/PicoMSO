@@ -3,7 +3,7 @@
 This directory contains a minimal PicoMSO host driver implementation structured in a
 libsigrok-style split between:
 
-- `api.c` / `api.h` for device lifecycle and acquisition flow
+- `api.c` for device lifecycle and acquisition flow
 - `protocol.c` / `protocol.h` for PicoMSO packet encoding and decoding
 
 Scope is intentionally limited to PicoMSO logic-analyzer mode:
