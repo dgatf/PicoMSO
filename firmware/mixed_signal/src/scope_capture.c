@@ -78,6 +78,7 @@ static int pre_trigger_first_;
 static void scope_capture_configure_adc(void);
 static inline void complete_handler(void);
 static inline void capture_stop(void);
+static inline uint scope_capture_get_missing_pre_trigger_samples(void);
 
 void scope_capture_reset(void) {
     if (s_phase == SCOPE_CAPTURE_PHASE_CAPTURING) {
@@ -85,8 +86,13 @@ void scope_capture_reset(void) {
         capture_stop();
     }
     s_scope_capture_config.total_samples = 0u;
+    s_scope_capture_config.rate = 0u;
     s_scope_capture_config.pre_trigger_samples = 0u;
     s_capture_read_offset_bytes = 0u;
+    pre_trigger_samples_ = 0u;
+    post_trigger_samples_ = 0u;
+    pre_trigger_count_ = 0u;
+    pre_trigger_first_ = 0;
     s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
 }
 
@@ -201,9 +207,17 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
 }
 
 uint16_t scope_capture_get_sample_index(int index) {
-    uint total_samples = pre_trigger_count_ + post_trigger_samples_;
+    const uint total_samples = (s_phase == SCOPE_CAPTURE_PHASE_FINALIZED) ? s_scope_capture_config.total_samples
+                                                                          : (pre_trigger_count_ + post_trigger_samples_);
+    const uint missing_pre_trigger_samples = scope_capture_get_missing_pre_trigger_samples();
 
     if (index < 0 || (uint)index >= total_samples) return 0;
+
+    if ((uint)index < missing_pre_trigger_samples) {
+        return 0;
+    }
+
+    index -= (int)missing_pre_trigger_samples;
 
     if ((uint)index < pre_trigger_count_) {
         int pos = pre_trigger_first_ + index;
@@ -312,7 +326,21 @@ static void scope_capture_configure_adc(void) {
     // slice_num_ = pwm_gpio_to_slice_num(GPIO_CALIBRATION);
 }
 
-uint scope_capture_get_samples_count(void) { return pre_trigger_count_ + post_trigger_samples_; }
+uint scope_capture_get_samples_count(void) {
+    if (s_phase == SCOPE_CAPTURE_PHASE_FINALIZED) {
+        return s_scope_capture_config.total_samples;
+    }
+
+    return pre_trigger_count_ + post_trigger_samples_;
+}
+
+static inline uint scope_capture_get_missing_pre_trigger_samples(void) {
+    if (pre_trigger_samples_ > pre_trigger_count_) {
+        return pre_trigger_samples_ - pre_trigger_count_;
+    }
+
+    return 0u;
+}
 
 static inline void complete_handler(void) {
     dma_hw->ints0 = 1u << dma_channel_adc_post_;

@@ -221,6 +221,9 @@ Disabled trigger entries may keep `pin = 0` and `match = 0x00`.
 request for the active mode, arms or starts the corresponding backend, and
 returns `ACK` once the request has been accepted.
 
+If a capture is already running, the device rejects a new `REQUEST_CAPTURE`
+instead of re-arming the backend mid-acquisition.
+
 In logic mode the device:
 
 1. starts a one-shot logic capture with the supplied trigger array
@@ -231,6 +234,10 @@ In logic mode the device:
 5. finalizes and stores the completed capture
 6. later reports completion through `GET_STATUS`, after which the host reads
    the stored result through `READ_DATA_BLOCK`
+
+If the trigger arrives before the requested pre-trigger history has been fully
+accumulated, the missing leading pre-trigger samples are returned as `0x0000`
+so that the finalized capture still matches the requested total sample count.
 
 In oscilloscope mode the device currently performs the same finite
 request-sized acquisition model using ADC input 0 (GPIO 26), stores raw
@@ -270,6 +277,10 @@ fixed-size chunk from the completed stored capture buffer. Each sample is a
 little-endian 16-bit raw ADC conversion from ADC input 0 (GPIO 26). The
 transport chunk size remains fixed at 64 bytes and no live acquisition data is
 exposed during capture.
+
+For both modes, the finalized readout length remains the requested
+`total_samples`. If the requested pre-trigger window was not fully available at
+trigger time, the missing leading samples are zero-padded in the stored readout.
 
 **Transport note:**  The request arrives as a vendor OUT control transfer on
 EP0.  The DATA_BLOCK response is sent over EP6 IN (BULK IN), establishing the
