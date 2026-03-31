@@ -32,9 +32,13 @@ extern "C" {
 #define SCOPE_CAPTURE_MAX_SAMPLES  16384u
 
 void scope_capture_reset(void);
-bool scope_capture_start(const capture_config_t *config);
+bool scope_capture_start(const capture_config_t *config, complete_handler_t handler);
 capture_state_t scope_capture_get_state(void);
 bool scope_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len);
+void oscilloscope_set_coupling(channel_t channel, coupling_t coupling);
+void oscilloscope_set_samplerate(uint samplerate);
+uint16_t scope_capture_get_sample_index(int index);
+uint scope_capture_get_samples_count(void);
 
 #ifdef __cplusplus
 }

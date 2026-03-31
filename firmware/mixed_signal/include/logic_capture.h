@@ -37,6 +37,7 @@ void logic_capture_reset(void);
 bool logic_capture_start(const capture_config_t *config, complete_handler_t handler);
 capture_state_t logic_capture_get_state(void);
 bool logic_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len);
+uint logic_capture_get_sm_mux(void);
 
 #ifdef __cplusplus
 }

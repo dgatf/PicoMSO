@@ -30,12 +30,11 @@
 
 #define LOGIC_CAPTURE_CHANNELS 16u
 #define LOGIC_CAPTURE_TRIGGER_TIMEOUT_SPINS 4096u
-#define LOGIC_CAPTURE_TRIGGER_COUNT 4u
 
 #define PRE_TRIGGER_RING_BITS 10
 #define PRE_TRIGGER_BUFFER_SIZE (1 << PRE_TRIGGER_RING_BITS)
 #define PRE_TRIGGER_RING_TRANSFER_COUNT ((0xffffffffu / PRE_TRIGGER_BUFFER_SIZE) * PRE_TRIGGER_BUFFER_SIZE)
-#define POST_TRIGGER_BUFFER_SIZE 100000
+#define POST_TRIGGER_BUFFER_SIZE 10000
 #define MAX_TRIGGER_COUNT 4
 #define RATE_CHANGE_CLK 5000
 
@@ -57,17 +56,18 @@ static capture_config_t s_logic_capture_config = {.total_samples = 0u,
                                                       {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
                                                   }};
 
-static logic_capture_phase_t s_phase = LOGIC_CAPTURE_PHASE_DISARMED;
+static volatile logic_capture_phase_t s_phase = LOGIC_CAPTURE_PHASE_DISARMED;
 static uint32_t s_capture_read_offset_bytes = 0u;
 
 static const uint sm_pre_trigger_ = 0, sm_post_trigger_ = 1, sm_mux_ = 3, dma_channel_pre_trigger_ = 0,
                   dma_channel_post_trigger_ = 1, dma_channel_pio0_ctrl_ = 2, dma_channel_pio1_ctrl_ = 3,
                   dma_channel_reload_pre_trigger_counter_ = 4, dma_channel_trigger_[MAX_TRIGGER_COUNT] = {5, 6, 7, 8},
                   sm_trigger_[MAX_TRIGGER_COUNT] = {0, 1, 2, 3}, reload_counter_ = PRE_TRIGGER_RING_TRANSFER_COUNT;
-static uint offset_pre_trigger_, offset_post_trigger_, pre_trigger_samples_, post_trigger_samples_, pre_trigger_count_,
+static uint offset_pre_trigger_, offset_post_trigger_, pre_trigger_samples_, post_trigger_samples_,
     pin_count_ = LOGIC_CAPTURE_CHANNELS, trigger_count_, sm_trigger_mask_, trigger_mask_, pin_base_, rate_, offset_mux_,
     offset_trigger_[MAX_TRIGGER_COUNT];
-static int pre_trigger_first_, triggered_channel_;
+static volatile uint pre_trigger_count_;
+static volatile int pre_trigger_first_, triggered_channel_;
 static float clk_div_;
 static volatile uint pio0_ctrl_ = (1 << sm_post_trigger_), pio1_ctrl_ = 0;
 static uint16_t pre_trigger_buffer_[PRE_TRIGGER_BUFFER_SIZE]
@@ -299,6 +299,10 @@ uint logic_capture_get_pre_trigger_count(void) { return pre_trigger_count_; }
 
 int logic_capture_get_triggered_channel(void) { return triggered_channel_; }
 
+uint logic_capture_get_sm_mux(void) {
+    return sm_mux_;
+}
+
 bool logic_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len) {
     const uint32_t total_bytes = logic_capture_get_samples_count() * sizeof(uint16_t);
     uint32_t remaining_bytes;
@@ -431,7 +435,7 @@ static inline void capture_complete_handler(void) {
         }
         capture_stop();
         s_phase = LOGIC_CAPTURE_PHASE_FINALIZED;
-        handler_();
+        if (handler_) handler_();
     } else {
         s_phase = LOGIC_CAPTURE_PHASE_DISARMED;
     }

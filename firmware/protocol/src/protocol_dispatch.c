@@ -211,7 +211,18 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr, con
  * calls once acquisition has finished.
  * ----------------------------------------------------------------------- */
 
-static void logic_capture_complete_handler(void) { capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE); }
+static volatile bool logic_is_finished_ = true;
+static volatile bool scope_is_finished_ = true;
+
+static void logic_capture_complete_handler(void) {
+    logic_is_finished_ = true;
+    capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
+}
+
+static void scope_capture_complete_handler(void) {
+    scope_is_finished_ = true;
+    capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
+}
 
 picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *hdr, const uint8_t *payload,
                                                 picomso_response_t *resp) {
@@ -252,10 +263,12 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     capture_config.total_samples = req.total_samples;
     capture_config.pre_trigger_samples = req.pre_trigger_samples;
 
+    logic_is_finished_ = false;
+    scope_is_finished_ = false;
     capture_controller_set_state(&s_capture_ctrl, CAPTURE_RUNNING);
     capture_started = (active_mode == CAPTURE_MODE_LOGIC)
                           ? logic_capture_start(&capture_config, logic_capture_complete_handler)
-                          : scope_capture_start(&capture_config);
+                          : scope_capture_start(&capture_config, scope_capture_complete_handler);
     if (!capture_started) {
         capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN, "capture request failed", resp);
