@@ -221,6 +221,9 @@ Disabled trigger entries may keep `pin = 0` and `match = 0x00`.
 request for the active mode, arms or starts the corresponding backend, and
 returns `ACK` once the request has been accepted.
 
+If a capture is already running, the device rejects a new `REQUEST_CAPTURE`
+instead of re-arming the backend mid-acquisition.
+
 In logic mode the device:
 
 1. starts a one-shot logic capture with the supplied trigger array

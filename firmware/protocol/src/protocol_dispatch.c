@@ -251,16 +251,11 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr, con
  * calls once acquisition has finished.
  * ----------------------------------------------------------------------- */
 
-static volatile bool logic_is_finished_ = true;
-static volatile bool scope_is_finished_ = true;
-
 static void logic_capture_complete_handler(void) {
-    logic_is_finished_ = true;
     capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
 }
 
 static void scope_capture_complete_handler(void) {
-    scope_is_finished_ = true;
     capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
 }
 
@@ -286,6 +281,11 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         return PICOMSO_STATUS_ERR_BAD_LEN;
     }
 
+    if (capture_controller_get_state(&s_capture_ctrl) == CAPTURE_RUNNING) {
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN, "capture already running", resp);
+        return PICOMSO_STATUS_ERR_UNKNOWN;
+    }
+
     memcpy(&req, payload, sizeof(req));
     max_samples = (active_mode == CAPTURE_MODE_LOGIC) ? LOGIC_CAPTURE_MAX_SAMPLES : SCOPE_CAPTURE_MAX_SAMPLES;
     if (req.total_samples == 0u || req.total_samples > max_samples || req.pre_trigger_samples > req.total_samples) {
@@ -305,8 +305,6 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     capture_config.total_samples = req.total_samples;
     capture_config.pre_trigger_samples = req.pre_trigger_samples;
 
-    logic_is_finished_ = false;
-    scope_is_finished_ = false;
     capture_controller_set_state(&s_capture_ctrl, CAPTURE_RUNNING);
     capture_started = (active_mode == CAPTURE_MODE_LOGIC)
                           ? logic_capture_start(&capture_config, logic_capture_complete_handler)

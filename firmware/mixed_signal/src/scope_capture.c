@@ -85,8 +85,13 @@ void scope_capture_reset(void) {
         capture_stop();
     }
     s_scope_capture_config.total_samples = 0u;
+    s_scope_capture_config.rate = 0u;
     s_scope_capture_config.pre_trigger_samples = 0u;
     s_capture_read_offset_bytes = 0u;
+    pre_trigger_samples_ = 0u;
+    post_trigger_samples_ = 0u;
+    pre_trigger_count_ = 0u;
+    pre_trigger_first_ = 0;
     s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
 }
 

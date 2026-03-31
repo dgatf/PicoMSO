@@ -95,8 +95,16 @@ void logic_capture_reset(void) {
         capture_stop();
     }
     s_logic_capture_config.total_samples = 0u;
+    s_logic_capture_config.rate = 0u;
     s_logic_capture_config.pre_trigger_samples = 0u;
     s_capture_read_offset_bytes = 0u;
+    pre_trigger_samples_ = 0u;
+    post_trigger_samples_ = 0u;
+    pre_trigger_count_ = 0u;
+    pre_trigger_first_ = 0;
+    trigger_count_ = 0u;
+    sm_trigger_mask_ = 0u;
+    triggered_channel_ = -1;
     s_phase = LOGIC_CAPTURE_PHASE_DISARMED;
     debug("\nCapture aborted");
 }
