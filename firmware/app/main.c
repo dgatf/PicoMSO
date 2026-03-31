@@ -79,6 +79,7 @@
 #include "integration.h"
 #include "debug.h"
 #include "types.h"
+#include "hardware/clocks.h"
 
 char debug_message_[DEBUG_BUFFER_SIZE];
 bool debug_ = false;
@@ -87,6 +88,7 @@ void set_pin_config(void);
 
 int main(void)
 {
+    if (clock_get_hz(clk_sys) != 100000000) set_sys_clock_khz(100000, true);
     stdio_init_all();
     set_pin_config();
     debug_init(115200, &debug_message_[0], &debug_);
