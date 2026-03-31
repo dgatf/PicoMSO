@@ -38,7 +38,7 @@ PICOMSO_PACKET_MAGIC = 0x4D53
 PICOMSO_VER_MAJOR = 0x00
 PICOMSO_VER_MINOR = 0x03
 PICOMSO_DATA_BLOCK_SIZE = 64
-LOGIC_SAMPLE_BYTES = 2
+SAMPLE_BYTES = 2
 MIN_MULTI_BLOCK_COUNT = 2
 DEFAULT_TOTAL_SAMPLES = 1000
 DEFAULT_PRE_TRIGGER_SAMPLES = 128
@@ -46,8 +46,19 @@ DEFAULT_TIMEOUT_MS = 2000
 DEFAULT_CAPTURE_TIMEOUT_MS = 10000
 
 PICOMSO_MODE_LOGIC = 0x01
+PICOMSO_MODE_OSCILLOSCOPE = 0x02
 PICOMSO_CAPTURE_IDLE = 0x00
 PICOMSO_CAPTURE_RUNNING = 0x01
+
+MODE_NAMES = {
+    PICOMSO_MODE_LOGIC: "logic",
+    PICOMSO_MODE_OSCILLOSCOPE: "scope",
+}
+
+MODE_VALUES = {
+    "logic": PICOMSO_MODE_LOGIC,
+    "scope": PICOMSO_MODE_OSCILLOSCOPE,
+}
 
 # protocol.h packet header layout:
 #   uint16_t magic
@@ -194,10 +205,14 @@ def send_request(
     return info
 
 
-def parse_logic_samples(data: bytes):
+def mode_name(mode: int) -> str:
+    return MODE_NAMES.get(mode, f"unknown(0x{mode:02X})")
+
+
+def parse_u16_samples(data: bytes):
     return [
         struct.unpack_from("<H", data, offset)[0]
-        for offset in range(0, len(data) - (len(data) % LOGIC_SAMPLE_BYTES), LOGIC_SAMPLE_BYTES)
+        for offset in range(0, len(data) - (len(data) % SAMPLE_BYTES), SAMPLE_BYTES)
     ]
 
 
@@ -240,15 +255,24 @@ def get_status(dev, seq: int):
     raise RuntimeError("GET_STATUS response payload too short")
 
 
-def wait_for_capture_idle(dev, start_seq: int, timeout_s: float, poll_interval_s: float):
+def wait_for_capture_idle(
+    dev,
+    start_seq: int,
+    expected_mode: int,
+    timeout_s: float,
+    poll_interval_s: float,
+):
     deadline = time.monotonic() + timeout_s
     seq = start_seq
 
     while True:
         status = get_status(dev, seq)
         seq += 1
-        if status["mode"] != PICOMSO_MODE_LOGIC:
-            raise RuntimeError(f"Device left logic mode unexpectedly: mode={status['mode']}")
+        if status["mode"] != expected_mode:
+            raise RuntimeError(
+                f"Device left {mode_name(expected_mode)} mode unexpectedly: "
+                f"mode={mode_name(status['mode'])}"
+            )
         if status["capture_state"] == PICOMSO_CAPTURE_IDLE:
             return seq
         if status["capture_state"] != PICOMSO_CAPTURE_RUNNING:
@@ -297,8 +321,8 @@ def read_data_block(dev, seq: int):
     data = payload[4:4 + data_len]
     print(f"Decoded DATA_BLOCK: block_id={block_id} data_len={data_len}")
     print("Data bytes:", list(data))
-    print("Interpreted logic samples (little-endian uint16):")
-    print(parse_logic_samples(data))
+    print("Interpreted samples (little-endian uint16):")
+    print(parse_u16_samples(data))
     return {
         "block_id": block_id,
         "data_len": data_len,
@@ -307,7 +331,7 @@ def read_data_block(dev, seq: int):
 
 
 def read_completed_capture(dev, start_seq: int, total_samples: int):
-    expected_total_bytes = total_samples * LOGIC_SAMPLE_BYTES
+    expected_total_bytes = total_samples * SAMPLE_BYTES
     received = bytearray()
     seq = start_seq
     expected_block_id = 0
@@ -343,7 +367,7 @@ def read_completed_capture(dev, start_seq: int, total_samples: int):
 
     print(
         f"Verified completed capture readout: {len(received)} bytes "
-        f"({len(received) // LOGIC_SAMPLE_BYTES} samples) across {expected_block_id} chunk(s)"
+        f"({len(received) // SAMPLE_BYTES} samples) across {expected_block_id} chunk(s)"
     )
     return bytes(received), seq
 
@@ -353,10 +377,16 @@ def parse_args():
         description="Exercise PicoMSO REQUEST_CAPTURE + READ_DATA_BLOCK semantics."
     )
     parser.add_argument(
+        "--mode",
+        choices=sorted(MODE_VALUES),
+        default="logic",
+        help="Capture mode to select before requesting capture",
+    )
+    parser.add_argument(
         "--total-samples",
         type=int,
         default=DEFAULT_TOTAL_SAMPLES,
-        help="Total number of logic samples to request and verify",
+        help="Total number of samples to request and verify",
     )
     parser.add_argument(
         "--pre-trigger-samples",
@@ -396,6 +426,7 @@ def main():
 
     dev = find_device()
     try:
+        selected_mode = MODE_VALUES[args.mode]
         next_seq = 1
         get_info(dev, next_seq)
         next_seq += 1
@@ -403,12 +434,15 @@ def main():
         next_seq += 1
         get_status(dev, next_seq)
         next_seq += 1
-        set_mode(dev, next_seq, PICOMSO_MODE_LOGIC)
+        set_mode(dev, next_seq, selected_mode)
         next_seq += 1
         status = get_status(dev, next_seq)
         next_seq += 1
-        if status["mode"] != PICOMSO_MODE_LOGIC:
-            raise RuntimeError(f"SET_MODE(LOGIC) did not take effect: mode={status['mode']}")
+        if status["mode"] != selected_mode:
+            raise RuntimeError(
+                f"SET_MODE({mode_name(selected_mode).upper()}) did not take effect: "
+                f"mode={mode_name(status['mode'])}"
+            )
 
         request_capture(
             dev,
@@ -422,6 +456,7 @@ def main():
         next_seq = wait_for_capture_idle(
             dev,
             start_seq=next_seq,
+            expected_mode=selected_mode,
             timeout_s=args.status_timeout_s,
             poll_interval_s=args.status_poll_interval_s,
         )
