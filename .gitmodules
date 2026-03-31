@@ -1,3 +1,6 @@
 [submodule "external/pico-sdk"]
 	path = external/pico-sdk
 	url = https://github.com/raspberrypi/pico-sdk.git
+[submodule "external/libsigrok"]
+	path = external/libsigrok
+	url = https://github.com/dgatf/libsigrok.git
