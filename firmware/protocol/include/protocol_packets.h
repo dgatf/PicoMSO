@@ -133,16 +133,27 @@ typedef struct {
  * REQUEST_CAPTURE  (PICOMSO_MSG_REQUEST_CAPTURE = 0x05)
  *
  * Request:  picomso_request_capture_request_t
- *   Starts one full one-shot capture for the active mode. The device performs the complete
- *   one-shot acquisition before acknowledging the command. The completed
- *   capture remains stored for later READ_DATA_BLOCK requests.
+ *   Starts one full capture for the active mode.
+ *
+ *   Fields:
+ *     total_samples        Total requested capture length in samples.
+ *     rate                 Requested sample rate in samples per second.
+ *     pre_trigger_samples  Requested number of pre-trigger samples.
+ *
+ *   For logic mode, capture start may be asynchronous depending on the
+ *   backend implementation. In that case, the command is acknowledged once
+ *   the capture has been successfully armed, and capture completion is
+ *   reflected later through GET_STATUS / READ_DATA_BLOCK.
+ *
+ *   The completed capture remains stored for later READ_DATA_BLOCK requests.
  *
  * Response: ACK packet (no additional payload) on success.
  * ----------------------------------------------------------------------- */
 
 typedef struct {
-    uint32_t total_samples;       /**< Full requested capture length in samples */
-    uint32_t pre_trigger_samples; /**< Requested pre-trigger sample count        */
+    uint32_t total_samples;       /**< Full requested capture length in samples     */
+    uint32_t rate;                /**< Requested sample rate in samples per second  */
+    uint32_t pre_trigger_samples; /**< Requested pre-trigger sample count           */
 } __attribute__((packed)) picomso_request_capture_request_t;
 
 /* -----------------------------------------------------------------------

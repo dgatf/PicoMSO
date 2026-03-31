@@ -31,27 +31,27 @@
  * selected by the active mode for REQUEST_CAPTURE and READ_DATA_BLOCK.
  */
 
-#include "protocol.h"
-#include "protocol_packets.h"
+#include <string.h>
+
 #include "capture_controller.h"
 #include "logic_capture.h"
+#include "protocol.h"
+#include "protocol_packets.h"
 #include "scope_capture.h"
-
-#include <string.h>
 
 /* -----------------------------------------------------------------------
  * Firmware identification string returned by GET_INFO.
  * Update this when the firmware gains a meaningful version tag.
  * ----------------------------------------------------------------------- */
 
-#define PICOMSO_FW_ID  "PicoMSO-0.1"
+#define PICOMSO_FW_ID "PicoMSO-0.1"
 
 /* -----------------------------------------------------------------------
  * Static device capability bitmap.
  * In a future phase this may be read from hardware-detection logic.
  * ----------------------------------------------------------------------- */
 
-#define PICOMSO_STATIC_CAPABILITIES  (PICOMSO_CAP_LOGIC | PICOMSO_CAP_SCOPE)
+#define PICOMSO_STATIC_CAPABILITIES (PICOMSO_CAP_LOGIC | PICOMSO_CAP_SCOPE)
 
 /* -----------------------------------------------------------------------
  * Module-level capture controller instance.
@@ -62,10 +62,7 @@
  * Starts in CAPTURE_MODE_UNSET / CAPTURE_IDLE.
  * ----------------------------------------------------------------------- */
 
-static capture_controller_t s_capture_ctrl = {
-    .mode  = CAPTURE_MODE_UNSET,
-    .state = CAPTURE_IDLE
-};
+static capture_controller_t s_capture_ctrl = {.mode = CAPTURE_MODE_UNSET, .state = CAPTURE_IDLE};
 
 /* -----------------------------------------------------------------------
  * Internal helper: build a full response packet.
@@ -74,19 +71,15 @@ static capture_controller_t s_capture_ctrl = {
  * appends payload_len bytes from payload.
  * ----------------------------------------------------------------------- */
 
-static void build_response(const picomso_packet_header_t *req_hdr,
-                            picomso_msg_type_t             resp_type,
-                            const void                    *payload,
-                            uint16_t                       payload_len,
-                            picomso_response_t            *resp)
-{
+static void build_response(const picomso_packet_header_t *req_hdr, picomso_msg_type_t resp_type, const void *payload,
+                           uint16_t payload_len, picomso_response_t *resp) {
     picomso_packet_header_t out_hdr;
-    out_hdr.magic         = PICOMSO_PACKET_MAGIC;
+    out_hdr.magic = PICOMSO_PACKET_MAGIC;
     out_hdr.version_major = PICOMSO_PROTOCOL_VERSION_MAJOR;
     out_hdr.version_minor = PICOMSO_PROTOCOL_VERSION_MINOR;
-    out_hdr.msg_type      = (uint8_t)resp_type;
-    out_hdr.seq           = req_hdr->seq;
-    out_hdr.length        = payload_len;
+    out_hdr.msg_type = (uint8_t)resp_type;
+    out_hdr.seq = req_hdr->seq;
+    out_hdr.length = payload_len;
 
     size_t total = sizeof(out_hdr) + payload_len;
     if (total > sizeof(resp->buf)) {
@@ -105,10 +98,8 @@ static void build_response(const picomso_packet_header_t *req_hdr,
  * GET_INFO handler
  * ----------------------------------------------------------------------- */
 
-picomso_status_t picomso_handle_get_info(const picomso_packet_header_t *hdr,
-                                         const uint8_t                 *payload,
-                                         picomso_response_t            *resp)
-{
+picomso_status_t picomso_handle_get_info(const picomso_packet_header_t *hdr, const uint8_t *payload,
+                                         picomso_response_t *resp) {
     (void)payload; /* GET_INFO carries no request payload */
 
     picomso_info_response_t info;
@@ -119,8 +110,7 @@ picomso_status_t picomso_handle_get_info(const picomso_packet_header_t *hdr,
     memset(info.fw_id, 0, sizeof(info.fw_id));
     strncpy(info.fw_id, PICOMSO_FW_ID, sizeof(info.fw_id) - 1u);
 
-    build_response(hdr, PICOMSO_MSG_ACK,
-                   &info, (uint16_t)sizeof(info), resp);
+    build_response(hdr, PICOMSO_MSG_ACK, &info, (uint16_t)sizeof(info), resp);
     return PICOMSO_STATUS_OK;
 }
 
@@ -128,17 +118,14 @@ picomso_status_t picomso_handle_get_info(const picomso_packet_header_t *hdr,
  * GET_CAPABILITIES handler
  * ----------------------------------------------------------------------- */
 
-picomso_status_t picomso_handle_get_capabilities(const picomso_packet_header_t *hdr,
-                                                 const uint8_t                 *payload,
-                                                 picomso_response_t            *resp)
-{
+picomso_status_t picomso_handle_get_capabilities(const picomso_packet_header_t *hdr, const uint8_t *payload,
+                                                 picomso_response_t *resp) {
     (void)payload; /* GET_CAPABILITIES carries no request payload */
 
     picomso_capabilities_response_t caps;
     caps.capabilities = PICOMSO_STATIC_CAPABILITIES;
 
-    build_response(hdr, PICOMSO_MSG_ACK,
-                   &caps, (uint16_t)sizeof(caps), resp);
+    build_response(hdr, PICOMSO_MSG_ACK, &caps, (uint16_t)sizeof(caps), resp);
     return PICOMSO_STATUS_OK;
 }
 
@@ -146,10 +133,8 @@ picomso_status_t picomso_handle_get_capabilities(const picomso_packet_header_t *
  * GET_STATUS handler
  * ----------------------------------------------------------------------- */
 
-picomso_status_t picomso_handle_get_status(const picomso_packet_header_t *hdr,
-                                           const uint8_t                 *payload,
-                                           picomso_response_t            *resp)
-{
+picomso_status_t picomso_handle_get_status(const picomso_packet_header_t *hdr, const uint8_t *payload,
+                                           picomso_response_t *resp) {
     (void)payload; /* GET_STATUS carries no request payload */
 
     if (capture_controller_get_mode(&s_capture_ctrl) == CAPTURE_MODE_LOGIC) {
@@ -159,11 +144,10 @@ picomso_status_t picomso_handle_get_status(const picomso_packet_header_t *hdr,
     }
 
     picomso_status_response_t status;
-    status.mode          = (uint8_t)capture_controller_get_mode(&s_capture_ctrl);
+    status.mode = (uint8_t)capture_controller_get_mode(&s_capture_ctrl);
     status.capture_state = (uint8_t)capture_controller_get_state(&s_capture_ctrl);
 
-    build_response(hdr, PICOMSO_MSG_ACK,
-                   &status, (uint16_t)sizeof(status), resp);
+    build_response(hdr, PICOMSO_MSG_ACK, &status, (uint16_t)sizeof(status), resp);
     return PICOMSO_STATUS_OK;
 }
 
@@ -171,13 +155,10 @@ picomso_status_t picomso_handle_get_status(const picomso_packet_header_t *hdr,
  * SET_MODE handler
  * ----------------------------------------------------------------------- */
 
-picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
-                                         const uint8_t                 *payload,
-                                         picomso_response_t            *resp)
-{
+picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr, const uint8_t *payload,
+                                         picomso_response_t *resp) {
     if (hdr->length < (uint16_t)sizeof(picomso_set_mode_request_t)) {
-        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN,
-                            "SET_MODE payload too short", resp);
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "SET_MODE payload too short", resp);
         return PICOMSO_STATUS_ERR_BAD_LEN;
     }
 
@@ -210,8 +191,7 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
             return PICOMSO_STATUS_OK;
 
         default:
-            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE,
-                                "unknown mode", resp);
+            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE, "unknown mode", resp);
             return PICOMSO_STATUS_ERR_BAD_MODE;
     }
 }
@@ -219,74 +199,69 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
 /* -----------------------------------------------------------------------
  * REQUEST_CAPTURE handler
  *
- * Performs the full one-shot capture synchronously for the active mode. The completed
- * capture is stored in the backend and only becomes visible through later
- * READ_DATA_BLOCK calls once acquisition is finished.
+ * Starts a capture for the currently selected backend.
+ *
+ * For logic mode, capture start is asynchronous: this handler validates the
+ * request, arms the capture backend, sets the controller state to RUNNING,
+ * and returns ACK immediately. The backend completion callback later moves
+ * the controller state back to IDLE when acquisition finishes.
+ *
+ * For scope mode, behavior currently depends on the backend implementation.
+ * The completed capture data becomes available through later READ_DATA_BLOCK
+ * calls once acquisition has finished.
  * ----------------------------------------------------------------------- */
 
-picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *hdr,
-                                                const uint8_t                 *payload,
-                                                picomso_response_t            *resp)
-{
+static void logic_capture_complete_handler(void) { capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE); }
+
+picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *hdr, const uint8_t *payload,
+                                                picomso_response_t *resp) {
     picomso_request_capture_request_t req;
     capture_mode_t active_mode;
     uint32_t max_samples;
     bool capture_started;
-    capture_config_t capture_config = {
-        .total_samples = 0u,
-        .rate = 0u,
-        .pre_trigger_samples = 0u,
-        .channels = 16u,
-        .trigger = {
-            {
-                .is_enabled = true,
-                .pin = 0u,
-                .match = TRIGGER_TYPE_EDGE_HIGH
-            },
-            { .is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW },
-            { .is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW },
-            { .is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW },
-        }
-    };
+    capture_config_t capture_config = {.total_samples = 0u,
+                                       .rate = 0u,
+                                       .pre_trigger_samples = 0u,
+                                       .channels = 16u,
+                                       .trigger = {
+                                           {.is_enabled = true, .pin = 0u, .match = TRIGGER_TYPE_EDGE_HIGH},
+                                           {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
+                                           {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
+                                           {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
+                                       }};
 
     active_mode = capture_controller_get_mode(&s_capture_ctrl);
-    if (active_mode != CAPTURE_MODE_LOGIC &&
-        active_mode != CAPTURE_MODE_OSCILLOSCOPE) {
-        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE,
-                            "capture mode not active", resp);
+    if (active_mode != CAPTURE_MODE_LOGIC && active_mode != CAPTURE_MODE_OSCILLOSCOPE) {
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE, "capture mode not active", resp);
         return PICOMSO_STATUS_ERR_BAD_MODE;
     }
 
     if (hdr->length < (uint16_t)sizeof(req)) {
-        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN,
-                            "REQUEST_CAPTURE payload too short", resp);
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "REQUEST_CAPTURE payload too short", resp);
         return PICOMSO_STATUS_ERR_BAD_LEN;
     }
 
     memcpy(&req, payload, sizeof(req));
     max_samples = (active_mode == CAPTURE_MODE_LOGIC) ? LOGIC_CAPTURE_MAX_SAMPLES : SCOPE_CAPTURE_MAX_SAMPLES;
-    if (req.total_samples == 0u || req.total_samples > max_samples ||
-        req.pre_trigger_samples > req.total_samples) {
-        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN,
-                            "invalid capture sizing", resp);
+    if (req.total_samples == 0u || req.total_samples > max_samples || req.pre_trigger_samples > req.total_samples) {
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid capture sizing", resp);
         return PICOMSO_STATUS_ERR_BAD_LEN;
     }
 
+    capture_config.rate = req.rate;
     capture_config.total_samples = req.total_samples;
     capture_config.pre_trigger_samples = req.pre_trigger_samples;
 
     capture_controller_set_state(&s_capture_ctrl, CAPTURE_RUNNING);
     capture_started = (active_mode == CAPTURE_MODE_LOGIC)
-                          ? logic_capture_start(&capture_config)
+                          ? logic_capture_start(&capture_config, logic_capture_complete_handler)
                           : scope_capture_start(&capture_config);
     if (!capture_started) {
         capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
-        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN,
-                            "capture request failed", resp);
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN, "capture request failed", resp);
         return PICOMSO_STATUS_ERR_UNKNOWN;
     }
 
-    capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
     picomso_write_ack(hdr->seq, resp);
     return PICOMSO_STATUS_OK;
 }
@@ -302,38 +277,36 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
  * No locking is applied.
  * ----------------------------------------------------------------------- */
 
-picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *hdr,
-                                                const uint8_t                 *payload,
-                                                picomso_response_t            *resp)
-{
+picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *hdr, const uint8_t *payload,
+                                                picomso_response_t *resp) {
     (void)payload; /* READ_DATA_BLOCK carries no request payload */
     capture_mode_t active_mode = capture_controller_get_mode(&s_capture_ctrl);
     bool read_ok;
 
-    if (active_mode != CAPTURE_MODE_LOGIC &&
-        active_mode != CAPTURE_MODE_OSCILLOSCOPE) {
-        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE,
-                            "capture mode not active", resp);
+    if (active_mode != CAPTURE_MODE_LOGIC && active_mode != CAPTURE_MODE_OSCILLOSCOPE) {
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE, "capture mode not active", resp);
         return PICOMSO_STATUS_ERR_BAD_MODE;
     }
 
     picomso_data_block_response_t blk;
+    uint16_t block_id = 0u;
+    uint16_t data_len = 0u;
+
     memset(&blk, 0, sizeof(blk));
-    read_ok = (active_mode == CAPTURE_MODE_LOGIC)
-                  ? logic_capture_read_block(&blk.block_id, blk.data, &blk.data_len)
-                  : scope_capture_read_block(&blk.block_id, blk.data, &blk.data_len);
+    read_ok = (active_mode == CAPTURE_MODE_LOGIC) ? logic_capture_read_block(&block_id, blk.data, &data_len)
+                                                  : scope_capture_read_block(&block_id, blk.data, &data_len);
+
     if (!read_ok) {
-        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN,
-                            "no finalized capture data", resp);
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN, "no finalized capture data", resp);
         return PICOMSO_STATUS_ERR_UNKNOWN;
     }
 
-    capture_controller_set_state(&s_capture_ctrl,
-                                 (active_mode == CAPTURE_MODE_LOGIC)
-                                     ? logic_capture_get_state()
-                                     : scope_capture_get_state());
+    blk.block_id = block_id;
+    blk.data_len = data_len;
 
-    build_response(hdr, PICOMSO_MSG_DATA_BLOCK,
-                   &blk, (uint16_t)sizeof(blk), resp);
+    capture_controller_set_state(
+        &s_capture_ctrl, (active_mode == CAPTURE_MODE_LOGIC) ? logic_capture_get_state() : scope_capture_get_state());
+
+    build_response(hdr, PICOMSO_MSG_DATA_BLOCK, &blk, (uint16_t)sizeof(blk), resp);
     return PICOMSO_STATUS_OK;
 }

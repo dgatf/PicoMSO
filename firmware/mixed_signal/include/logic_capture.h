@@ -31,8 +31,10 @@ extern "C" {
 #define LOGIC_CAPTURE_BLOCK_BYTES  64u
 #define LOGIC_CAPTURE_MAX_SAMPLES  100000u
 
+typedef void (*complete_handler_t)(void);
+
 void logic_capture_reset(void);
-bool logic_capture_start(const capture_config_t *config);
+bool logic_capture_start(const capture_config_t *config, complete_handler_t handler);
 capture_state_t logic_capture_get_state(void);
 bool logic_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len);
 

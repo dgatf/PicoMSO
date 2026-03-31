@@ -14,4 +14,8 @@ target_link_libraries(picomso_firmware_mixed_signal
         hardware_adc
         hardware_gpio
         picomso_common
+        hardware_pio
+        hardware_dma
 )
+
+pico_generate_pio_header(picomso_firmware_mixed_signal ${CMAKE_CURRENT_LIST_DIR}/src/capture.pio)

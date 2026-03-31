@@ -37,7 +37,7 @@ static const uint sm_pre_trigger_ = 0, sm_post_trigger_ = 1, sm_mux_ = 3, dma_ch
                   dma_channel_reload_pre_trigger_counter_ = 4, dma_channel_trigger_[MAX_TRIGGER_COUNT] = {5, 6, 7, 8},
                   sm_trigger_[MAX_TRIGGER_COUNT] = {0, 1, 2, 3}, reload_counter_ = PRE_TRIGGER_RING_TRANSFER_COUNT;
 static uint offset_pre_trigger_, offset_post_trigger_, pre_trigger_samples_, post_trigger_samples_, pre_trigger_count_,
-    pin_count_, trigger_count_, sm_trigger_mask_, trigger_mask_, pin_base_, rate_, offset_mux_,
+    pin_count_, trigger_count_, sm_trigger_mask_, pin_base_, rate_, offset_mux_,
     offset_trigger_[MAX_TRIGGER_COUNT];
 static int pre_trigger_first_, triggered_channel_;
 static float clk_div_;
