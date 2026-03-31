@@ -260,5 +260,5 @@ bool picomso_sigrok_device_error_is_end_of_capture(const picomso_sigrok_device_e
     }
 
     return device_error->status == PICOMSO_STATUS_ERR_UNKNOWN &&
-           strcmp(device_error->message, "no finalized capture data") == 0;
+           strcmp(device_error->message, PICOMSO_SIGROK_END_OF_CAPTURE_MESSAGE) == 0;
 }

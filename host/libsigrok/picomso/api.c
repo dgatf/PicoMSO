@@ -168,6 +168,7 @@ picomso_sigrok_status_t picomso_sigrok_dev_open(picomso_sigrok_driver_t *driver)
     picomso_capabilities_response_t capabilities;
     picomso_status_response_t status_response;
     picomso_sigrok_status_t status;
+    size_t firmware_id_copy_len;
 
     if (driver == NULL || driver->transport_ops == NULL) {
         return PICOMSO_SIGROK_ERR_ARG;
@@ -193,7 +194,10 @@ picomso_sigrok_status_t picomso_sigrok_dev_open(picomso_sigrok_driver_t *driver)
 
     driver->protocol_version_major = info.protocol_version_major;
     driver->protocol_version_minor = info.protocol_version_minor;
-    memcpy(driver->firmware_id, info.fw_id, sizeof(driver->firmware_id));
+    firmware_id_copy_len = (sizeof(driver->firmware_id) < sizeof(info.fw_id))
+                               ? sizeof(driver->firmware_id)
+                               : sizeof(info.fw_id);
+    memcpy(driver->firmware_id, info.fw_id, firmware_id_copy_len);
     driver->firmware_id[sizeof(driver->firmware_id) - 1u] = '\0';
 
     status = transport_round_trip(driver, PICOMSO_MSG_GET_CAPABILITIES, NULL, 0u, &response);

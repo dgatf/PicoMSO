@@ -143,7 +143,7 @@ static bool fake_recv_bulk(void *user_data, uint8_t *buf, size_t buf_capacity, s
         memset(&info, 0, sizeof(info));
         info.protocol_version_major = PICOMSO_PROTOCOL_VERSION_MAJOR;
         info.protocol_version_minor = PICOMSO_PROTOCOL_VERSION_MINOR;
-        memcpy(info.fw_id, "PicoMSO-0.1", strlen("PicoMSO-0.1"));
+        memcpy(info.fw_id, "PicoMSO-0.1", sizeof("PicoMSO-0.1") - 1u);
         *received_len = build_ack_with_payload(buf, buf_capacity, seq, &info, sizeof(info));
         return true;
     }
@@ -201,7 +201,7 @@ static bool fake_recv_bulk(void *user_data, uint8_t *buf, size_t buf_capacity, s
             }
 
             *received_len = build_error_response(buf, buf_capacity, seq, PICOMSO_STATUS_ERR_UNKNOWN,
-                                                 "no finalized capture data");
+                                                 PICOMSO_SIGROK_END_OF_CAPTURE_MESSAGE);
             return true;
         }
 

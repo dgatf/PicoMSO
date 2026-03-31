@@ -32,6 +32,7 @@ extern "C" {
 
 #define PICOMSO_SIGROK_PACKET_BUF_SIZE  256u
 #define PICOMSO_SIGROK_ERROR_TEXT_MAX   128u
+#define PICOMSO_SIGROK_END_OF_CAPTURE_MESSAGE  "no finalized capture data"
 
 typedef struct {
     picomso_packet_header_t header;
