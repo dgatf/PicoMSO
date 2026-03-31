@@ -36,7 +36,7 @@ PICOMSO_MSG_DATA_BLOCK = 0x82
 # These values mirror firmware/protocol/include/protocol.h.
 PICOMSO_PACKET_MAGIC = 0x4D53
 PICOMSO_VER_MAJOR = 0x00
-PICOMSO_VER_MINOR = 0x03
+PICOMSO_VER_MINOR = 0x04
 PICOMSO_DATA_BLOCK_SIZE = 64
 SAMPLE_BYTES = 2
 MIN_MULTI_BLOCK_COUNT = 2
@@ -233,6 +233,17 @@ def parse_u16_samples(data: bytes):
     ]
 
 
+def format_scope_samples(samples, scope_channels: int):
+    if scope_channels == 1:
+        return samples
+    if scope_channels == 2:
+        return [
+            {"ch1": samples[index], "ch2": samples[index + 1] if index + 1 < len(samples) else None}
+            for index in range(0, len(samples), scope_channels)
+        ]
+    raise ValueError(f"unsupported scope channel count {scope_channels}")
+
+
 def default_trigger_config():
     return {"is_enabled": 0, "pin": 0, "match": PICOMSO_TRIGGER_MATCH_LEVEL_LOW}
 
@@ -297,6 +308,7 @@ def build_capture_request_payload(
     rate: int,
     pre_trigger_samples: int,
     triggers,
+    scope_channels: int = 0,
 ) -> bytes:
     if len(triggers) != PICOMSO_TRIGGER_COUNT:
         raise ValueError(f"expected {PICOMSO_TRIGGER_COUNT} trigger slots, got {len(triggers)}")
@@ -306,6 +318,7 @@ def build_capture_request_payload(
         payload.extend(
             struct.pack("<BBB", trigger["is_enabled"], trigger["pin"], trigger["match"])
         )
+    payload.extend(struct.pack("<B", scope_channels))
 
     return bytes(payload)
 
@@ -385,10 +398,12 @@ def set_mode(dev, seq: int, mode: int):
 def request_capture(
     dev,
     seq: int,
+    mode: int,
     total_samples: int,
     rate: int,
     pre_trigger_samples: int,
     triggers,
+    scope_channels: int,
     timeout_ms: int,
 ):
     payload = build_capture_request_payload(
@@ -396,6 +411,7 @@ def request_capture(
         rate=rate,
         pre_trigger_samples=pre_trigger_samples,
         triggers=triggers,
+        scope_channels=scope_channels if mode == PICOMSO_MODE_OSCILLOSCOPE else 0,
     )
     for index, trigger in enumerate(triggers):
         enabled = bool(trigger["is_enabled"])
@@ -416,7 +432,7 @@ def request_capture(
     expect_msg_type(info, PICOMSO_MSG_ACK, "REQUEST_CAPTURE")
 
 
-def read_data_block(dev, seq: int):
+def read_data_block(dev, seq: int, mode: int, scope_channels: int):
     info = send_request(dev, "READ_DATA_BLOCK response", PICOMSO_MSG_READ_DATA_BLOCK, seq, b"")
     expect_msg_type(info, PICOMSO_MSG_DATA_BLOCK, "READ_DATA_BLOCK")
 
@@ -436,7 +452,11 @@ def read_data_block(dev, seq: int):
     print(f"Decoded DATA_BLOCK: block_id={block_id} data_len={data_len}")
     print("Data bytes:", list(data))
     print("Interpreted samples (little-endian uint16):")
-    print(parse_u16_samples(data))
+    samples = parse_u16_samples(data)
+    if mode == PICOMSO_MODE_OSCILLOSCOPE:
+        print(format_scope_samples(samples, scope_channels))
+    else:
+        print(samples)
     return {
         "block_id": block_id,
         "data_len": data_len,
@@ -444,14 +464,14 @@ def read_data_block(dev, seq: int):
     }
 
 
-def read_completed_capture(dev, start_seq: int, total_samples: int):
+def read_completed_capture(dev, start_seq: int, mode: int, total_samples: int, scope_channels: int):
     expected_total_bytes = total_samples * SAMPLE_BYTES
     received = bytearray()
     seq = start_seq
     expected_block_id = 0
 
     while len(received) < expected_total_bytes:
-        block = read_data_block(dev, seq)
+        block = read_data_block(dev, seq, mode, scope_channels)
         seq += 1
 
         if block["block_id"] != expected_block_id:
@@ -543,6 +563,13 @@ def parse_args():
             "If omitted, all trigger entries remain disabled."
         ),
     )
+    parser.add_argument(
+        "--scope-channels",
+        type=int,
+        choices=(1, 2),
+        default=1,
+        help="Number of active analog channels to request in scope mode (ignored in logic mode)",
+    )
     return parser.parse_args()
 
 
@@ -584,10 +611,12 @@ def main():
         request_capture(
             dev,
             next_seq,
+            selected_mode,
             total_samples=args.total_samples,
             rate=args.rate,
             pre_trigger_samples=args.pre_trigger_samples,
             triggers=trigger_configs,
+            scope_channels=args.scope_channels,
             timeout_ms=args.capture_timeout_ms,
         )
         next_seq += 1
@@ -600,7 +629,13 @@ def main():
             poll_interval_s=args.status_poll_interval_s,
         )
 
-        read_completed_capture(dev, next_seq, total_samples=args.total_samples)
+        read_completed_capture(
+            dev,
+            next_seq,
+            mode=selected_mode,
+            total_samples=args.total_samples,
+            scope_channels=args.scope_channels,
+        )
     finally:
         usb.util.release_interface(dev, 0)
         usb.util.dispose_resources(dev)

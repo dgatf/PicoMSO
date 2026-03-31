@@ -34,6 +34,7 @@
 extern "C" {
 #endif
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "protocol.h"
@@ -141,6 +142,9 @@ typedef struct {
  *     pre_trigger_samples  Requested number of pre-trigger samples.
  *     trigger[4]           Logic trigger configuration array. Each entry carries
  *                          is_enabled, pin, and match type.
+ *     scope_channels       Active analog channel count when oscilloscope mode is
+ *                          selected. Valid values are 1 or 2. Logic mode ignores
+ *                          this field.
  *
  *   For logic mode, capture start may be asynchronous depending on the
  *   backend implementation. In that case, the command is acknowledged once
@@ -172,7 +176,10 @@ typedef struct {
     uint32_t rate;                /**< Requested sample rate in samples per second  */
     uint32_t pre_trigger_samples; /**< Requested pre-trigger sample count           */
     picomso_trigger_config_t trigger[PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT];
+    uint8_t scope_channels;       /**< Active analog channel count for scope mode  */
 } __attribute__((packed)) picomso_request_capture_request_t;
+
+#define PICOMSO_REQUEST_CAPTURE_LEGACY_SIZE  ((uint16_t)offsetof(picomso_request_capture_request_t, scope_channels))
 
 /* -----------------------------------------------------------------------
  * READ_DATA_BLOCK  (PICOMSO_MSG_READ_DATA_BLOCK = 0x06)
@@ -207,6 +214,13 @@ typedef struct {
  * The full response wire format is:
  *   picomso_packet_header_t  (8 bytes, msg_type = PICOMSO_MSG_DATA_BLOCK)
  *   picomso_data_block_response_t
+ *
+ * Scope-mode sample layout:
+ *   - scope_channels = 1: data[] is a flat sequence of little-endian uint16 ADC
+ *     samples from channel 1 (ADC0 / GPIO 26).
+ *   - scope_channels = 2: data[] is a flat sequence of little-endian uint16 ADC
+ *     samples interleaved as channel 1 first, then channel 2, repeating:
+ *       ch1[0], ch2[0], ch1[1], ch2[1], ...
  */
 typedef struct {
     uint16_t block_id; /**< Monotonically incrementing block counter       */

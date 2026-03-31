@@ -48,8 +48,9 @@ typedef struct trigger_t {
     trigger_match_t match;
 } trigger_t;
 
-// Logic-analyzer capture configuration.
-// Oscilloscope uses oscilloscope_config_t for its ADC-specific fields.
+// Shared capture configuration.
+// Logic mode uses 16 digital channels. Scope mode uses 1 or 2 analog channels,
+// and returned ADC samples follow the configured backend-specific layout.
 typedef struct capture_config_t {
     uint total_samples;
     uint rate;

@@ -31,6 +31,8 @@
 
 #define SCOPE_CAPTURE_ADC_GPIO 26u
 #define SCOPE_CAPTURE_ADC_INPUT 0u
+#define SCOPE_CAPTURE_CHANNEL1_MASK (1u << SCOPE_CAPTURE_ADC_INPUT)
+#define SCOPE_CAPTURE_CHANNEL2_MASK (SCOPE_CAPTURE_CHANNEL1_MASK | (1u << (SCOPE_CAPTURE_ADC_INPUT + 1u)))
 
 #define PRE_TRIGGER_RING_BITS 10
 #define PRE_TRIGGER_BUFFER_SIZE (1 << PRE_TRIGGER_RING_BITS)
@@ -78,6 +80,7 @@ static int pre_trigger_first_;
 static void scope_capture_configure_adc(void);
 static inline void complete_handler(void);
 static inline void capture_stop(void);
+static uint32_t scope_capture_channel_mask(uint channels);
 
 void scope_capture_reset(void) {
     if (s_phase == SCOPE_CAPTURE_PHASE_CAPTURING) {
@@ -87,6 +90,7 @@ void scope_capture_reset(void) {
     s_scope_capture_config.total_samples = 0u;
     s_scope_capture_config.rate = 0u;
     s_scope_capture_config.pre_trigger_samples = 0u;
+    s_scope_capture_config.channels = 1u;
     s_capture_read_offset_bytes = 0u;
     pre_trigger_samples_ = 0u;
     post_trigger_samples_ = 0u;
@@ -108,9 +112,12 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
         return false;
     }
 
+    if (config->channels < 1u || config->channels > 2u) {
+        return false;
+    }
+
     handler_ = handler;
     s_scope_capture_config = *config;
-    s_scope_capture_config.channels = 1u;
     s_capture_read_offset_bytes = 0u;
     uint32_t samples = config->total_samples;
     uint32_t rate = config->rate;
@@ -130,7 +137,7 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
                    false,  // omit ERR bit (bit 15) since we have 8 bit reads.
                    false   // 12 bit resolution
     );
-    uint ch_count = 1;  //(oscilloscope_config_.channel_mask == 0b11) ? 2 : 1;
+    uint ch_count = s_scope_capture_config.channels;
     oscilloscope_set_samplerate(s_scope_capture_config.rate * ch_count);
 
     // DMA channel ADC reload counter
@@ -192,7 +199,8 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
     irq_set_exclusive_handler(DMA_IRQ_0, complete_handler);
     irq_set_enabled(DMA_IRQ_0, true);
 
-    adc_set_round_robin(s_scope_capture_config.channels);
+    adc_select_input(SCOPE_CAPTURE_ADC_INPUT);
+    adc_set_round_robin(scope_capture_channel_mask(s_scope_capture_config.channels));
 
     if (!logic_capture_get_trigger_count()) {
         dma_hw->multi_channel_trigger = dma_post_;  // trigger post immediately if no logic triggers
@@ -252,6 +260,11 @@ bool scope_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_
     remaining_bytes = total_bytes - s_capture_read_offset_bytes;
     chunk_bytes = (remaining_bytes > SCOPE_CAPTURE_BLOCK_BYTES) ? SCOPE_CAPTURE_BLOCK_BYTES : (uint16_t)remaining_bytes;
 
+    /*
+     * Scope readout is serialized as little-endian uint16 ADC samples.
+     * For 1-channel captures the stream is ch1[0], ch1[1], ...
+     * For 2-channel captures the stream is interleaved ch1[0], ch2[0], ch1[1], ch2[1], ...
+     */
     uint index = s_capture_read_offset_bytes / sizeof(uint16_t);
     for (uint i = 0; i < chunk_bytes / sizeof(uint16_t); ++i) {
         const uint16_t sample = scope_capture_get_sample_index(index);
@@ -318,6 +331,10 @@ static void scope_capture_configure_adc(void) {
 }
 
 uint scope_capture_get_samples_count(void) { return pre_trigger_count_ + post_trigger_samples_; }
+
+static uint32_t scope_capture_channel_mask(uint channels) {
+    return (channels == 2u) ? SCOPE_CAPTURE_CHANNEL2_MASK : SCOPE_CAPTURE_CHANNEL1_MASK;
+}
 
 static inline void complete_handler(void) {
     dma_hw->ints0 = 1u << dma_channel_adc_post_;

@@ -46,6 +46,10 @@
 
 #define PICOMSO_FW_ID "PicoMSO-0.1"
 #define PICOMSO_LOGIC_TRIGGER_PIN_COUNT 16u
+#define PICOMSO_LOGIC_CAPTURE_CHANNELS 16u
+#define PICOMSO_SCOPE_CHANNELS_DEFAULT 1u
+#define PICOMSO_SCOPE_CHANNELS_MIN 1u
+#define PICOMSO_SCOPE_CHANNELS_MAX 2u
 
 /* -----------------------------------------------------------------------
  * Static device capability bitmap.
@@ -268,7 +272,7 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     capture_config_t capture_config = {.total_samples = 0u,
                                        .rate = 0u,
                                        .pre_trigger_samples = 0u,
-                                       .channels = 16u};
+                                       .channels = PICOMSO_LOGIC_CAPTURE_CHANNELS};
 
     active_mode = capture_controller_get_mode(&s_capture_ctrl);
     if (active_mode != CAPTURE_MODE_LOGIC && active_mode != CAPTURE_MODE_OSCILLOSCOPE) {
@@ -276,7 +280,7 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         return PICOMSO_STATUS_ERR_BAD_MODE;
     }
 
-    if (hdr->length != (uint16_t)sizeof(req)) {
+    if (hdr->length != (uint16_t)sizeof(req) && hdr->length != PICOMSO_REQUEST_CAPTURE_LEGACY_SIZE) {
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid REQUEST_CAPTURE payload length", resp);
         return PICOMSO_STATUS_ERR_BAD_LEN;
     }
@@ -286,7 +290,8 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         return PICOMSO_STATUS_ERR_UNKNOWN;
     }
 
-    memcpy(&req, payload, sizeof(req));
+    memset(&req, 0, sizeof(req));
+    memcpy(&req, payload, hdr->length);
     max_samples = (active_mode == CAPTURE_MODE_LOGIC) ? LOGIC_CAPTURE_MAX_SAMPLES : SCOPE_CAPTURE_MAX_SAMPLES;
     if (req.total_samples == 0u || req.total_samples > max_samples || req.pre_trigger_samples > req.total_samples) {
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid capture sizing", resp);
@@ -304,6 +309,18 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     capture_config.rate = req.rate;
     capture_config.total_samples = req.total_samples;
     capture_config.pre_trigger_samples = req.pre_trigger_samples;
+    if (active_mode == CAPTURE_MODE_LOGIC) {
+        capture_config.channels = PICOMSO_LOGIC_CAPTURE_CHANNELS;
+    } else {
+        capture_config.channels = (hdr->length == PICOMSO_REQUEST_CAPTURE_LEGACY_SIZE)
+                                      ? PICOMSO_SCOPE_CHANNELS_DEFAULT
+                                      : req.scope_channels;
+        if (capture_config.channels < PICOMSO_SCOPE_CHANNELS_MIN ||
+            capture_config.channels > PICOMSO_SCOPE_CHANNELS_MAX) {
+            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid oscilloscope channel count", resp);
+            return PICOMSO_STATUS_ERR_BAD_LEN;
+        }
+    }
 
     capture_controller_set_state(&s_capture_ctrl, CAPTURE_RUNNING);
     capture_started = (active_mode == CAPTURE_MODE_LOGIC)

@@ -48,8 +48,8 @@ extern "C" {
 /** Protocol major version.  Bump when wire format changes incompatibly. */
 #define PICOMSO_PROTOCOL_VERSION_MAJOR  0
 
-/** Protocol minor version.  Bump when new commands are added. */
-#define PICOMSO_PROTOCOL_VERSION_MINOR  3
+/** Protocol minor version.  Bump when new commands or backward-compatible request fields are added. */
+#define PICOMSO_PROTOCOL_VERSION_MINOR  4
 
 /* -----------------------------------------------------------------------
  * Packet framing constants

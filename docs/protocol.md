@@ -32,7 +32,7 @@ Both imported firmware projects remain independently buildable and unchanged.
 | Constant                            | Value | Meaning                                         |
 |-------------------------------------|-------|-------------------------------------------------|
 | `PICOMSO_PROTOCOL_VERSION_MAJOR`    | `0`   | Bump on incompatible wire-format change         |
-| `PICOMSO_PROTOCOL_VERSION_MINOR`    | `3`   | Bump when new commands are added                |
+| `PICOMSO_PROTOCOL_VERSION_MINOR`    | `4`   | Backward-compatible `REQUEST_CAPTURE` extension |
 
 The device rejects any packet whose `version_major` differs from its own
 with `PICOMSO_STATUS_ERR_VERSION`.
@@ -200,6 +200,7 @@ if the mode value is not one of the defined values.
 | 4      | 4    | `rate`                | Requested sample rate in samples per second |
 | 8      | 4    | `pre_trigger_samples` | Requested pre-trigger sample count        |
 | 12     | 12   | `trigger[4]`          | Four 3-byte trigger entries, each `(is_enabled, pin, match)` |
+| 24     | 1    | `scope_channels`      | Active analog channel count in scope mode (`1` or `2`) |
 
 Each `trigger[i]` entry is packed as:
 
@@ -209,8 +210,11 @@ Each `trigger[i]` entry is packed as:
 | 1                   | 1    | `pin`        | GPIO pin index used by the trigger |
 | 2                   | 1    | `match`      | `0x00` = level-low, `0x01` = level-high, `0x02` = edge-low, `0x03` = edge-high |
 
-`REQUEST_CAPTURE` requires this full fixed-size payload. Any other payload
-length is rejected.
+`REQUEST_CAPTURE` accepts the current 25-byte payload shown above. For backward
+compatibility, firmware also accepts the legacy 24-byte payload that omitted
+`scope_channels`; in oscilloscope mode that legacy form is interpreted as
+`scope_channels = 1`. Logic mode ignores `scope_channels` and continues to use
+its fixed 16-bit GPIO snapshot format.
 
 When a trigger slot is unused, the host should send it with `is_enabled = 0`.
 Disabled trigger entries may keep `pin = 0` and `match = 0x00`.
@@ -235,12 +239,15 @@ In logic mode the device:
 6. later reports completion through `GET_STATUS`, after which the host reads
    the stored result through `READ_DATA_BLOCK`
 
-In oscilloscope mode the device currently performs the same finite
-request-sized acquisition model using ADC input 0 (GPIO 26), stores raw
-little-endian 16-bit ADC samples, and exposes them only after completion
-through repeated `READ_DATA_BLOCK` requests. `pre_trigger_samples` and trigger
-fields are accepted for protocol compatibility but do not yet enable a separate
-analog-trigger algorithm.
+In oscilloscope mode the device performs the same finite request-sized
+acquisition model using ADC input 0 (GPIO 26) for channel 1 and ADC input 1
+(GPIO 27) when `scope_channels = 2`. The backend stores raw little-endian
+16-bit ADC samples and exposes them only after completion through repeated
+`READ_DATA_BLOCK` requests. `pre_trigger_samples` and trigger fields are
+accepted for protocol compatibility but do not yet enable a separate
+analog-trigger algorithm. In scope mode, `total_samples` and
+`pre_trigger_samples` count returned 16-bit ADC conversion words in wire order;
+with `scope_channels = 2`, those words alternate `ch1`, `ch2`, `ch1`, `ch2`, ...
 
 After the `ACK`, the host reads the stored completed capture through repeated
 `READ_DATA_BLOCK` requests.
@@ -270,9 +277,16 @@ preceding `REQUEST_CAPTURE` command. Each logic sample is a little-endian
 
 **Oscilloscope payload:** In oscilloscope mode the device returns the next
 fixed-size chunk from the completed stored capture buffer. Each sample is a
-little-endian 16-bit raw ADC conversion from ADC input 0 (GPIO 26). The
-transport chunk size remains fixed at 64 bytes and no live acquisition data is
-exposed during capture.
+little-endian 16-bit raw ADC conversion. The active analog channel count comes
+from the preceding `REQUEST_CAPTURE.scope_channels` field:
+
+- `scope_channels = 1`: the data stream is a flat sequence from channel 1
+  (ADC0 / GPIO 26): `ch1[0], ch1[1], ch1[2], ...`
+- `scope_channels = 2`: the data stream is interleaved channel 1 first, then
+  channel 2 (ADC1 / GPIO 27): `ch1[0], ch2[0], ch1[1], ch2[1], ...`
+
+The transport chunk size remains fixed at 64 bytes and no live acquisition data
+is exposed during capture.
 
 **Transport note:**  The request arrives as a vendor OUT control transfer on
 EP0.  The DATA_BLOCK response is sent over EP6 IN (BULK IN), establishing the
