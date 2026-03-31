@@ -45,6 +45,7 @@
  * ----------------------------------------------------------------------- */
 
 #define PICOMSO_FW_ID "PicoMSO-0.1"
+#define PICOMSO_LOGIC_TRIGGER_PIN_COUNT 16u
 
 /* -----------------------------------------------------------------------
  * Static device capability bitmap.
@@ -92,6 +93,45 @@ static void build_response(const picomso_packet_header_t *req_hdr, picomso_msg_t
         memcpy(resp->buf + sizeof(out_hdr), payload, payload_len);
     }
     resp->used = total;
+}
+
+static bool request_trigger_is_valid(const picomso_trigger_config_t *trigger) {
+    if (trigger->is_enabled > 1u || trigger->pin >= PICOMSO_LOGIC_TRIGGER_PIN_COUNT) {
+        return false;
+    }
+
+    switch ((picomso_trigger_match_t)trigger->match) {
+        case PICOMSO_TRIGGER_MATCH_LEVEL_LOW:
+        case PICOMSO_TRIGGER_MATCH_LEVEL_HIGH:
+        case PICOMSO_TRIGGER_MATCH_EDGE_LOW:
+        case PICOMSO_TRIGGER_MATCH_EDGE_HIGH:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static trigger_match_t protocol_trigger_match_to_internal(picomso_trigger_match_t match) {
+    switch (match) {
+        case PICOMSO_TRIGGER_MATCH_LEVEL_LOW:
+            return TRIGGER_TYPE_LEVEL_LOW;
+        case PICOMSO_TRIGGER_MATCH_LEVEL_HIGH:
+            return TRIGGER_TYPE_LEVEL_HIGH;
+        case PICOMSO_TRIGGER_MATCH_EDGE_LOW:
+            return TRIGGER_TYPE_EDGE_LOW;
+        case PICOMSO_TRIGGER_MATCH_EDGE_HIGH:
+            return TRIGGER_TYPE_EDGE_HIGH;
+        default:
+            return TRIGGER_TYPE_LEVEL_LOW;
+    }
+}
+
+static void copy_request_triggers(capture_config_t *capture_config, const picomso_request_capture_request_t *request) {
+    for (uint32_t i = 0u; i < PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT; ++i) {
+        capture_config->trigger[i].is_enabled = (request->trigger[i].is_enabled != 0u);
+        capture_config->trigger[i].pin = request->trigger[i].pin;
+        capture_config->trigger[i].match = protocol_trigger_match_to_internal((picomso_trigger_match_t)request->trigger[i].match);
+    }
 }
 
 /* -----------------------------------------------------------------------
@@ -233,13 +273,7 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     capture_config_t capture_config = {.total_samples = 0u,
                                        .rate = 0u,
                                        .pre_trigger_samples = 0u,
-                                       .channels = 16u,
-                                       .trigger = {
-                                           {.is_enabled = true, .pin = 0u, .match = TRIGGER_TYPE_EDGE_HIGH},
-                                           {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
-                                           {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
-                                           {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
-                                       }};
+                                       .channels = 16u};
 
     active_mode = capture_controller_get_mode(&s_capture_ctrl);
     if (active_mode != CAPTURE_MODE_LOGIC && active_mode != CAPTURE_MODE_OSCILLOSCOPE) {
@@ -247,8 +281,8 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         return PICOMSO_STATUS_ERR_BAD_MODE;
     }
 
-    if (hdr->length < (uint16_t)sizeof(req)) {
-        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "REQUEST_CAPTURE payload too short", resp);
+    if (hdr->length != (uint16_t)sizeof(req)) {
+        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid REQUEST_CAPTURE payload length", resp);
         return PICOMSO_STATUS_ERR_BAD_LEN;
     }
 
@@ -258,6 +292,14 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid capture sizing", resp);
         return PICOMSO_STATUS_ERR_BAD_LEN;
     }
+
+    for (uint32_t i = 0u; i < PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT; ++i) {
+        if (!request_trigger_is_valid(&req.trigger[i])) {
+            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid trigger configuration", resp);
+            return PICOMSO_STATUS_ERR_BAD_LEN;
+        }
+    }
+    copy_request_triggers(&capture_config, &req);
 
     capture_config.rate = req.rate;
     capture_config.total_samples = req.total_samples;

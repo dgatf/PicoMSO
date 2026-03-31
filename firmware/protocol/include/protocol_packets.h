@@ -139,6 +139,8 @@ typedef struct {
  *     total_samples        Total requested capture length in samples.
  *     rate                 Requested sample rate in samples per second.
  *     pre_trigger_samples  Requested number of pre-trigger samples.
+ *     trigger[4]           Logic trigger configuration array. Each entry carries
+ *                          is_enabled, pin, and match type.
  *
  *   For logic mode, capture start may be asynchronous depending on the
  *   backend implementation. In that case, the command is acknowledged once
@@ -150,10 +152,26 @@ typedef struct {
  * Response: ACK packet (no additional payload) on success.
  * ----------------------------------------------------------------------- */
 
+#define PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT  4u
+
+typedef enum {
+    PICOMSO_TRIGGER_MATCH_LEVEL_LOW  = 0x00,
+    PICOMSO_TRIGGER_MATCH_LEVEL_HIGH = 0x01,
+    PICOMSO_TRIGGER_MATCH_EDGE_LOW   = 0x02,
+    PICOMSO_TRIGGER_MATCH_EDGE_HIGH  = 0x03,
+} picomso_trigger_match_t;
+
+typedef struct {
+    uint8_t is_enabled; /**< 0 = disabled, 1 = enabled */
+    uint8_t pin;        /**< GPIO index used by the trigger */
+    uint8_t match;      /**< picomso_trigger_match_t */
+} __attribute__((packed)) picomso_trigger_config_t;
+
 typedef struct {
     uint32_t total_samples;       /**< Full requested capture length in samples     */
     uint32_t rate;                /**< Requested sample rate in samples per second  */
     uint32_t pre_trigger_samples; /**< Requested pre-trigger sample count           */
+    picomso_trigger_config_t trigger[PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT];
 } __attribute__((packed)) picomso_request_capture_request_t;
 
 /* -----------------------------------------------------------------------

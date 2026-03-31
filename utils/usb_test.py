@@ -45,6 +45,13 @@ DEFAULT_PRE_TRIGGER_SAMPLES = 128
 DEFAULT_SAMPLE_RATE = 100000
 DEFAULT_TIMEOUT_MS = 2000
 DEFAULT_CAPTURE_TIMEOUT_MS = 10000
+PICOMSO_TRIGGER_COUNT = 4
+PICOMSO_TRIGGER_PIN_MAX = 15
+
+PICOMSO_TRIGGER_MATCH_LEVEL_LOW = 0x00
+PICOMSO_TRIGGER_MATCH_LEVEL_HIGH = 0x01
+PICOMSO_TRIGGER_MATCH_EDGE_LOW = 0x02
+PICOMSO_TRIGGER_MATCH_EDGE_HIGH = 0x03
 
 PICOMSO_MODE_LOGIC = 0x01
 PICOMSO_MODE_OSCILLOSCOPE = 0x02
@@ -60,6 +67,15 @@ MODE_VALUES = {
     "logic": PICOMSO_MODE_LOGIC,
     "scope": PICOMSO_MODE_OSCILLOSCOPE,
 }
+
+TRIGGER_MATCH_VALUES = {
+    "level-low": PICOMSO_TRIGGER_MATCH_LEVEL_LOW,
+    "level-high": PICOMSO_TRIGGER_MATCH_LEVEL_HIGH,
+    "edge-low": PICOMSO_TRIGGER_MATCH_EDGE_LOW,
+    "edge-high": PICOMSO_TRIGGER_MATCH_EDGE_HIGH,
+}
+
+TRIGGER_MATCH_NAMES = {value: key for key, value in TRIGGER_MATCH_VALUES.items()}
 
 # protocol.h packet header layout:
 #   uint16_t magic
@@ -217,6 +233,83 @@ def parse_u16_samples(data: bytes):
     ]
 
 
+def default_trigger_config():
+    return {"is_enabled": 0, "pin": 0, "match": PICOMSO_TRIGGER_MATCH_LEVEL_LOW}
+
+
+def parse_trigger_spec(spec: str):
+    parts = spec.split(":")
+    if len(parts) != 3:
+        raise argparse.ArgumentTypeError(
+            "trigger must use SLOT:PIN:MATCH (for example 0:3:edge-high)"
+        )
+
+    try:
+        slot = int(parts[0], 0)
+        pin = int(parts[1], 0)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("trigger slot and pin must be integers") from exc
+
+    match_key = parts[2].strip().lower().replace("_", "-")
+    if slot < 0 or slot >= PICOMSO_TRIGGER_COUNT:
+        raise argparse.ArgumentTypeError(
+            f"trigger slot must be between 0 and {PICOMSO_TRIGGER_COUNT - 1}"
+        )
+    if pin < 0 or pin > PICOMSO_TRIGGER_PIN_MAX:
+        raise argparse.ArgumentTypeError(
+            f"trigger pin must be between 0 and {PICOMSO_TRIGGER_PIN_MAX}"
+        )
+    if match_key not in TRIGGER_MATCH_VALUES:
+        raise argparse.ArgumentTypeError(
+            "trigger match must be one of "
+            + ", ".join(sorted(TRIGGER_MATCH_VALUES))
+        )
+
+    return {
+        "slot": slot,
+        "is_enabled": 1,
+        "pin": pin,
+        "match": TRIGGER_MATCH_VALUES[match_key],
+    }
+
+
+def build_trigger_configs(trigger_specs):
+    if trigger_specs is None:
+        return [default_trigger_config() for _ in range(PICOMSO_TRIGGER_COUNT)]
+
+    configs = [default_trigger_config() for _ in range(PICOMSO_TRIGGER_COUNT)]
+    seen_slots = set()
+    for spec in trigger_specs:
+        if spec["slot"] in seen_slots:
+            raise ValueError(f"duplicate trigger slot {spec['slot']}")
+        seen_slots.add(spec["slot"])
+        configs[spec["slot"]] = {
+            "is_enabled": spec["is_enabled"],
+            "pin": spec["pin"],
+            "match": spec["match"],
+        }
+
+    return configs
+
+
+def build_capture_request_payload(
+    total_samples: int,
+    rate: int,
+    pre_trigger_samples: int,
+    triggers,
+) -> bytes:
+    if len(triggers) != PICOMSO_TRIGGER_COUNT:
+        raise ValueError(f"expected {PICOMSO_TRIGGER_COUNT} trigger slots, got {len(triggers)}")
+
+    payload = bytearray(struct.pack("<III", total_samples, rate, pre_trigger_samples))
+    for trigger in triggers:
+        payload.extend(
+            struct.pack("<BBB", trigger["is_enabled"], trigger["pin"], trigger["match"])
+        )
+
+    return bytes(payload)
+
+
 def get_info(dev, seq: int):
     info = send_request(dev, "GET_INFO response", PICOMSO_MSG_GET_INFO, seq, b"", read_size=128)
     expect_msg_type(info, PICOMSO_MSG_ACK, "GET_INFO")
@@ -295,9 +388,22 @@ def request_capture(
     total_samples: int,
     rate: int,
     pre_trigger_samples: int,
+    triggers,
     timeout_ms: int,
 ):
-    payload = struct.pack("<III", total_samples, rate, pre_trigger_samples)
+    payload = build_capture_request_payload(
+        total_samples=total_samples,
+        rate=rate,
+        pre_trigger_samples=pre_trigger_samples,
+        triggers=triggers,
+    )
+    for index, trigger in enumerate(triggers):
+        enabled = bool(trigger["is_enabled"])
+        match_name = TRIGGER_MATCH_NAMES[trigger["match"]]
+        print(
+            f"REQUEST_CAPTURE trigger[{index}]: enabled={enabled} "
+            f"pin={trigger['pin']} match={match_name}"
+        )
     info = send_request(
         dev,
         "REQUEST_CAPTURE response",
@@ -426,6 +532,17 @@ def parse_args():
         default=0.05,
         help="Delay between GET_STATUS polls while waiting for capture completion",
     )
+    parser.add_argument(
+        "--trigger",
+        action="append",
+        type=parse_trigger_spec,
+        metavar="SLOT:PIN:MATCH",
+        help=(
+            "Set one trigger slot in the REQUEST_CAPTURE payload "
+            "(for example 0:3:edge-high). May be specified up to four times. "
+            "If omitted, all trigger entries remain disabled."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -439,6 +556,10 @@ def main():
         raise ValueError("--pre-trigger-samples must be non-negative")
     if args.pre_trigger_samples > args.total_samples:
         raise ValueError("--pre-trigger-samples must not exceed --total-samples")
+    if args.trigger is not None and len(args.trigger) > PICOMSO_TRIGGER_COUNT:
+        raise ValueError(f"--trigger may be specified at most {PICOMSO_TRIGGER_COUNT} times")
+
+    trigger_configs = build_trigger_configs(args.trigger)
 
     dev = find_device()
     try:
@@ -466,6 +587,7 @@ def main():
             total_samples=args.total_samples,
             rate=args.rate,
             pre_trigger_samples=args.pre_trigger_samples,
+            triggers=trigger_configs,
             timeout_ms=args.capture_timeout_ms,
         )
         next_seq += 1
