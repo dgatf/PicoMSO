@@ -42,6 +42,7 @@ SAMPLE_BYTES = 2
 MIN_MULTI_BLOCK_COUNT = 2
 DEFAULT_TOTAL_SAMPLES = 1000
 DEFAULT_PRE_TRIGGER_SAMPLES = 128
+DEFAULT_SAMPLE_RATE = 100000
 DEFAULT_TIMEOUT_MS = 2000
 DEFAULT_CAPTURE_TIMEOUT_MS = 10000
 
@@ -288,8 +289,15 @@ def set_mode(dev, seq: int, mode: int):
     expect_msg_type(info, PICOMSO_MSG_ACK, "SET_MODE")
 
 
-def request_capture(dev, seq: int, total_samples: int, pre_trigger_samples: int, timeout_ms: int):
-    payload = struct.pack("<II", total_samples, pre_trigger_samples)
+def request_capture(
+    dev,
+    seq: int,
+    total_samples: int,
+    rate: int,
+    pre_trigger_samples: int,
+    timeout_ms: int,
+):
+    payload = struct.pack("<III", total_samples, rate, pre_trigger_samples)
     info = send_request(
         dev,
         "REQUEST_CAPTURE response",
@@ -395,6 +403,12 @@ def parse_args():
         help="Requested pre-trigger sample count",
     )
     parser.add_argument(
+        "--rate",
+        type=int,
+        default=DEFAULT_SAMPLE_RATE,
+        help="Requested sample rate in Hz",
+    )
+    parser.add_argument(
         "--capture-timeout-ms",
         type=int,
         default=DEFAULT_CAPTURE_TIMEOUT_MS,
@@ -419,6 +433,8 @@ def main():
     args = parse_args()
     if args.total_samples <= 0:
         raise ValueError("--total-samples must be positive")
+    if args.rate <= 0:
+        raise ValueError("--rate must be positive")
     if args.pre_trigger_samples < 0:
         raise ValueError("--pre-trigger-samples must be non-negative")
     if args.pre_trigger_samples > args.total_samples:
@@ -448,6 +464,7 @@ def main():
             dev,
             next_seq,
             total_samples=args.total_samples,
+            rate=args.rate,
             pre_trigger_samples=args.pre_trigger_samples,
             timeout_ms=args.capture_timeout_ms,
         )
