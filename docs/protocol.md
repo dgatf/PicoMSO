@@ -197,30 +197,45 @@ if the mode value is not one of the defined values.
 | Offset | Size | Field                 | Description                               |
 |--------|------|-----------------------|-------------------------------------------|
 | 0      | 4    | `total_samples`       | Full requested capture length in samples  |
-| 4      | 4    | `pre_trigger_samples` | Requested pre-trigger sample count        |
+| 4      | 4    | `rate`                | Requested sample rate in samples per second |
+| 8      | 4    | `pre_trigger_samples` | Requested pre-trigger sample count        |
+| 12     | 12   | `trigger[4]`          | Four trigger entries, each `(is_enabled, pin, match)` |
+
+Each `trigger[i]` entry is packed as:
+
+| Offset within entry | Size | Field        | Description |
+|---------------------|------|--------------|-------------|
+| 0                   | 1    | `is_enabled` | `0` = disabled, `1` = enabled |
+| 1                   | 1    | `pin`        | GPIO pin index used by the trigger |
+| 2                   | 1    | `match`      | `0x00` = level-low, `0x01` = level-high, `0x02` = edge-low, `0x03` = edge-high |
+
+For backward compatibility, firmware may still accept the legacy 12-byte
+payload that ends at `pre_trigger_samples`; in that case it uses the previous
+default trigger layout internally.
 
 **Response:** `ACK` on success.
 
-**Semantics:** This command is the capture request. The device performs a
-finite one-shot capture in the active mode, stores the completed result, and
-only then acknowledges the request.
+**Semantics:** This command is the capture request. The device validates the
+request for the active mode, arms or starts the corresponding backend, and
+returns `ACK` once the request has been accepted.
 
 In logic mode the device:
 
-1. starts a one-shot logic capture
+1. starts a one-shot logic capture with the supplied trigger array
 2. retains pre-trigger samples in a circular buffer
 3. detects the trigger
 4. collects the remaining post-trigger samples needed to satisfy the full
-   requested total capture length
+    requested total capture length
 5. finalizes and stores the completed capture
-6. only then acknowledges the request
+6. later reports completion through `GET_STATUS`, after which the host reads
+   the stored result through `READ_DATA_BLOCK`
 
 In oscilloscope mode the device currently performs the same finite
 request-sized acquisition model using ADC input 0 (GPIO 26), stores raw
 little-endian 16-bit ADC samples, and exposes them only after completion
-through repeated `READ_DATA_BLOCK` requests. `pre_trigger_samples` is accepted
-for protocol compatibility but does not yet enable a separate analog-trigger
-algorithm.
+through repeated `READ_DATA_BLOCK` requests. `pre_trigger_samples` and trigger
+fields are accepted for protocol compatibility but do not yet enable a separate
+analog-trigger algorithm.
 
 After the `ACK`, the host reads the stored completed capture through repeated
 `READ_DATA_BLOCK` requests.
