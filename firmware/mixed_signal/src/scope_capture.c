@@ -151,7 +151,7 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
     dma_channel_configure(dma_channel_adc_, &channel_config_adc,
                           &pre_trigger_buffer_,  // write address
                           &adc_hw->fifo,         // read address
-                          0xffffffffu, true);
+                          0xffffffffu, false);
 
     // DMA channel ADC post
     dma_channel_config channel_config_adc_post = dma_channel_get_default_config(dma_channel_adc_post_);
@@ -188,6 +188,13 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
     irq_set_enabled(DMA_IRQ_0, true);
 
     adc_set_round_robin(s_scope_capture_config.channels);
+
+    if (!logic_capture_get_trigger_count()) {
+        dma_hw->multi_channel_trigger = dma_post_;  // trigger post immediately if no logic triggers
+    } else {
+        dma_hw->multi_channel_trigger = dma_pre_;
+    }
+
     adc_run(true);
 
     return true;

@@ -77,10 +77,19 @@
 
 #include "usb_transport.h"
 #include "integration.h"
+#include "debug.h"
+#include "types.h"
+
+char debug_message_[DEBUG_BUFFER_SIZE];
+bool debug_ = false;
+
+void set_pin_config(void);
 
 int main(void)
 {
     stdio_init_all();
+    set_pin_config();
+    debug_init(115200, &debug_message_[0], &debug_);
 
     /*
      * Step 1: Initialise the USB hardware.
@@ -134,4 +143,25 @@ int main(void)
 
     /* Unreachable. */
     return 0;
+}
+
+void set_pin_config(void) {
+    /*
+     *   Connect GPIO to GND at boot to select/enable:
+     *   - GPIO 18: debug mode on. Output is on GPIO 16 at 115200bps.
+     *
+     *   Defaults (option not grounded):
+     *   - Debug disabled
+     */
+
+    // configure pins
+    gpio_init_mask((1 << GPIO_DEBUG_ENABLE));
+    gpio_set_dir_masked((1 << GPIO_DEBUG_ENABLE), false);
+    gpio_pull_up(GPIO_DEBUG_ENABLE);
+
+    // set default config
+    debug_ = false;
+
+    // read pin config
+    if (!gpio_get(GPIO_DEBUG_ENABLE)) debug_ = true;
 }

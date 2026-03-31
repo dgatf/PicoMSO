@@ -303,6 +303,10 @@ uint logic_capture_get_sm_mux(void) {
     return sm_mux_;
 }
 
+uint logic_capture_get_trigger_count(void) {
+    return trigger_count_;
+}
+
 bool logic_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len) {
     const uint32_t total_bytes = logic_capture_get_samples_count() * sizeof(uint16_t);
     uint32_t remaining_bytes;

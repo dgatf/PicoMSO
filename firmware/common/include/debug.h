@@ -27,6 +27,8 @@ extern "C" {
 
 #include "pico/types.h"
 
+#define DEBUG_BUFFER_SIZE 300
+
 // UART0 is used for debug output on both firmware projects
 #define DEBUG_UART_TX_GPIO 16
 #define DEBUG_UART_RX_GPIO 17
