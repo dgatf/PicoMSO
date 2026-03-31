@@ -142,9 +142,6 @@ typedef struct {
  *     trigger[4]           Logic trigger configuration array. Each entry carries
  *                          is_enabled, pin, and match type.
  *
- *   For backward compatibility, firmware may still accept a legacy payload that
- *   stops after pre_trigger_samples and falls back to the default trigger set.
- *
  *   For logic mode, capture start may be asynchronous depending on the
  *   backend implementation. In that case, the command is acknowledged once
  *   the capture has been successfully armed, and capture completion is
@@ -156,7 +153,6 @@ typedef struct {
  * ----------------------------------------------------------------------- */
 
 #define PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT  4u
-#define PICOMSO_REQUEST_CAPTURE_LEGACY_SIZE    12u
 
 typedef enum {
     PICOMSO_TRIGGER_MATCH_LEVEL_LOW  = 0x00,

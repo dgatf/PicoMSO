@@ -209,9 +209,11 @@ Each `trigger[i]` entry is packed as:
 | 1                   | 1    | `pin`        | GPIO pin index used by the trigger |
 | 2                   | 1    | `match`      | `0x00` = level-low, `0x01` = level-high, `0x02` = edge-low, `0x03` = edge-high |
 
-For backward compatibility, firmware may still accept the legacy 12-byte
-payload that ends at `pre_trigger_samples`; in that case it uses the previous
-default trigger layout internally.
+`REQUEST_CAPTURE` requires this full fixed-size payload. Any other payload
+length is rejected.
+
+When a trigger slot is unused, the host should send it with `is_enabled = 0`.
+Disabled trigger entries may keep `pin = 0` and `match = 0x00`.
 
 **Response:** `ACK` on success.
 
@@ -225,7 +227,7 @@ In logic mode the device:
 2. retains pre-trigger samples in a circular buffer
 3. detects the trigger
 4. collects the remaining post-trigger samples needed to satisfy the full
-    requested total capture length
+   requested total capture length
 5. finalizes and stores the completed capture
 6. later reports completion through `GET_STATUS`, after which the host reads
    the stored result through `READ_DATA_BLOCK`

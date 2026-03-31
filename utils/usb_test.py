@@ -78,7 +78,7 @@ TRIGGER_MATCH_VALUES = {
 TRIGGER_MATCH_NAMES = {value: key for key, value in TRIGGER_MATCH_VALUES.items()}
 
 DEFAULT_TRIGGER_CONFIGS = (
-    {"is_enabled": 1, "pin": 0, "match": PICOMSO_TRIGGER_MATCH_EDGE_HIGH},
+    {"is_enabled": 0, "pin": 0, "match": PICOMSO_TRIGGER_MATCH_LEVEL_LOW},
     {"is_enabled": 0, "pin": 0, "match": PICOMSO_TRIGGER_MATCH_LEVEL_LOW},
     {"is_enabled": 0, "pin": 0, "match": PICOMSO_TRIGGER_MATCH_LEVEL_LOW},
     {"is_enabled": 0, "pin": 0, "match": PICOMSO_TRIGGER_MATCH_LEVEL_LOW},
@@ -547,7 +547,7 @@ def parse_args():
         help=(
             "Set one trigger slot in the REQUEST_CAPTURE payload "
             "(for example 0:3:edge-high). May be specified up to four times. "
-            "If omitted, the script uses the firmware's previous default layout."
+            "If omitted, all trigger entries remain disabled."
         ),
     )
     return parser.parse_args()
