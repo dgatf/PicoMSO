@@ -77,13 +77,6 @@ TRIGGER_MATCH_VALUES = {
 
 TRIGGER_MATCH_NAMES = {value: key for key, value in TRIGGER_MATCH_VALUES.items()}
 
-DEFAULT_TRIGGER_CONFIGS = (
-    {"is_enabled": 0, "pin": 0, "match": PICOMSO_TRIGGER_MATCH_LEVEL_LOW},
-    {"is_enabled": 0, "pin": 0, "match": PICOMSO_TRIGGER_MATCH_LEVEL_LOW},
-    {"is_enabled": 0, "pin": 0, "match": PICOMSO_TRIGGER_MATCH_LEVEL_LOW},
-    {"is_enabled": 0, "pin": 0, "match": PICOMSO_TRIGGER_MATCH_LEVEL_LOW},
-)
-
 # protocol.h packet header layout:
 #   uint16_t magic
 #   uint8_t  version_major
@@ -282,7 +275,7 @@ def parse_trigger_spec(spec: str):
 
 def build_trigger_configs(trigger_specs):
     if trigger_specs is None:
-        return [dict(trigger) for trigger in DEFAULT_TRIGGER_CONFIGS]
+        return [default_trigger_config() for _ in range(PICOMSO_TRIGGER_COUNT)]
 
     configs = [default_trigger_config() for _ in range(PICOMSO_TRIGGER_COUNT)]
     seen_slots = set()

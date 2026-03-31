@@ -95,14 +95,6 @@ static void build_response(const picomso_packet_header_t *req_hdr, picomso_msg_t
     resp->used = total;
 }
 
-static void set_default_capture_triggers(capture_config_t *capture_config) {
-    for (uint32_t i = 0u; i < PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT; ++i) {
-        capture_config->trigger[i].is_enabled = false;
-        capture_config->trigger[i].pin = 0u;
-        capture_config->trigger[i].match = TRIGGER_TYPE_LEVEL_LOW;
-    }
-}
-
 static bool request_trigger_is_valid(const picomso_trigger_config_t *trigger) {
     if (trigger->is_enabled > 1u || trigger->pin >= PICOMSO_LOGIC_TRIGGER_PIN_COUNT) {
         return false;
@@ -119,11 +111,26 @@ static bool request_trigger_is_valid(const picomso_trigger_config_t *trigger) {
     }
 }
 
+static trigger_match_t protocol_trigger_match_to_internal(picomso_trigger_match_t match) {
+    switch (match) {
+        case PICOMSO_TRIGGER_MATCH_LEVEL_LOW:
+            return TRIGGER_TYPE_LEVEL_LOW;
+        case PICOMSO_TRIGGER_MATCH_LEVEL_HIGH:
+            return TRIGGER_TYPE_LEVEL_HIGH;
+        case PICOMSO_TRIGGER_MATCH_EDGE_LOW:
+            return TRIGGER_TYPE_EDGE_LOW;
+        case PICOMSO_TRIGGER_MATCH_EDGE_HIGH:
+            return TRIGGER_TYPE_EDGE_HIGH;
+        default:
+            return TRIGGER_TYPE_LEVEL_LOW;
+    }
+}
+
 static void copy_request_triggers(capture_config_t *capture_config, const picomso_request_capture_request_t *request) {
     for (uint32_t i = 0u; i < PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT; ++i) {
         capture_config->trigger[i].is_enabled = (request->trigger[i].is_enabled != 0u);
         capture_config->trigger[i].pin = request->trigger[i].pin;
-        capture_config->trigger[i].match = (trigger_match_t)request->trigger[i].match;
+        capture_config->trigger[i].match = protocol_trigger_match_to_internal((picomso_trigger_match_t)request->trigger[i].match);
     }
 }
 
@@ -257,8 +264,6 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
                                        .pre_trigger_samples = 0u,
                                        .channels = 16u};
 
-    set_default_capture_triggers(&capture_config);
-
     active_mode = capture_controller_get_mode(&s_capture_ctrl);
     if (active_mode != CAPTURE_MODE_LOGIC && active_mode != CAPTURE_MODE_OSCILLOSCOPE) {
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE, "capture mode not active", resp);
@@ -277,12 +282,10 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         return PICOMSO_STATUS_ERR_BAD_LEN;
     }
 
-    if (active_mode == CAPTURE_MODE_LOGIC) {
-        for (uint32_t i = 0u; i < PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT; ++i) {
-            if (!request_trigger_is_valid(&req.trigger[i])) {
-                picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid trigger configuration", resp);
-                return PICOMSO_STATUS_ERR_BAD_LEN;
-            }
+    for (uint32_t i = 0u; i < PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT; ++i) {
+        if (!request_trigger_is_valid(&req.trigger[i])) {
+            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid trigger configuration", resp);
+            return PICOMSO_STATUS_ERR_BAD_LEN;
         }
     }
     copy_request_triggers(&capture_config, &req);

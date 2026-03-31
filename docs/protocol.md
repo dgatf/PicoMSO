@@ -199,7 +199,7 @@ if the mode value is not one of the defined values.
 | 0      | 4    | `total_samples`       | Full requested capture length in samples  |
 | 4      | 4    | `rate`                | Requested sample rate in samples per second |
 | 8      | 4    | `pre_trigger_samples` | Requested pre-trigger sample count        |
-| 12     | 12   | `trigger[4]`          | Four trigger entries, each `(is_enabled, pin, match)` |
+| 12     | 12   | `trigger[4]`          | Four 3-byte trigger entries, each `(is_enabled, pin, match)` |
 
 Each `trigger[i]` entry is packed as:
 
