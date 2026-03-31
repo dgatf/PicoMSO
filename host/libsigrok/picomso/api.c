@@ -35,6 +35,37 @@ static void set_error(picomso_sigrok_driver_t *driver, const char *message)
              (message != NULL) ? message : "unknown PicoMSO driver error");
 }
 
+static picomso_sigrok_status_t forward_logic_samples(picomso_sigrok_driver_t *driver,
+                                                     picomso_sigrok_samples_cb_t samples_cb,
+                                                     void *samples_cb_data,
+                                                     const uint8_t *data,
+                                                     uint16_t data_len,
+                                                     size_t *captured_samples)
+{
+    uint16_t samples[PICOMSO_DATA_BLOCK_SIZE / sizeof(uint16_t)];
+    size_t sample_count;
+    size_t i;
+
+    if ((data_len % sizeof(uint16_t)) != 0u) {
+        set_error(driver, "PicoMSO logic data block has odd byte length");
+        return PICOMSO_SIGROK_ERR_PROTOCOL;
+    }
+
+    sample_count = data_len / sizeof(uint16_t);
+    for (i = 0; i < sample_count; i++) {
+        size_t offset = i * sizeof(uint16_t);
+        samples[i] = (uint16_t)data[offset] | (uint16_t)((uint16_t)data[offset + 1u] << 8);
+    }
+
+    if (sample_count > 0u && !samples_cb(samples_cb_data, samples, sample_count)) {
+        set_error(driver, "sample callback rejected PicoMSO logic data block");
+        return PICOMSO_SIGROK_ERR_CALLBACK;
+    }
+
+    *captured_samples += sample_count;
+    return PICOMSO_SIGROK_OK;
+}
+
 static picomso_sigrok_status_t transport_round_trip(picomso_sigrok_driver_t *driver,
                                                     picomso_msg_type_t msg_type,
                                                     const void *payload,
@@ -329,7 +360,6 @@ picomso_sigrok_status_t picomso_sigrok_acquisition_start(picomso_sigrok_driver_t
         uint16_t block_id;
         uint16_t data_len;
         const uint8_t *data;
-        size_t sample_count;
 
         status = transport_round_trip(driver, PICOMSO_MSG_READ_DATA_BLOCK, NULL, 0u, &response);
         if (status != PICOMSO_SIGROK_OK) {
@@ -363,22 +393,10 @@ picomso_sigrok_status_t picomso_sigrok_acquisition_start(picomso_sigrok_driver_t
         }
         driver->next_block_id++;
 
-        if ((data_len % sizeof(uint16_t)) != 0u) {
-            set_error(driver, "PicoMSO logic data block has odd byte length");
-            status = PICOMSO_SIGROK_ERR_PROTOCOL;
+        status = forward_logic_samples(driver, samples_cb, samples_cb_data, data, data_len,
+                                       &captured_samples);
+        if (status != PICOMSO_SIGROK_OK) {
             goto fail;
-        }
-
-        sample_count = data_len / sizeof(uint16_t);
-        if (sample_count > 0u && !samples_cb(samples_cb_data, (const uint16_t *)data, sample_count)) {
-            set_error(driver, "sample callback rejected PicoMSO logic data block");
-            status = PICOMSO_SIGROK_ERR_CALLBACK;
-            goto fail;
-        }
-        captured_samples += sample_count;
-
-        if (data_len < PICOMSO_DATA_BLOCK_SIZE) {
-            break;
         }
     }
 

@@ -29,7 +29,7 @@
 
 typedef enum {
     TEST_SCENARIO_END_ON_DEVICE_ERROR = 0,
-    TEST_SCENARIO_END_ON_SHORT_BLOCK,
+    TEST_SCENARIO_SHORT_BLOCK_BEFORE_END,
 } test_scenario_t;
 
 typedef struct {
@@ -113,6 +113,37 @@ static size_t build_data_block_response(uint8_t *buf,
     block.block_id = block_id;
     block.data_len = (uint16_t)byte_count;
     memcpy(block.data, samples, byte_count);
+    memcpy(buf + sizeof(header), &block, 4u + byte_count);
+    return total_len;
+}
+
+static size_t build_data_block_response_bytes(uint8_t *buf,
+                                              size_t buf_len,
+                                              uint8_t seq,
+                                              uint16_t block_id,
+                                              const uint8_t *data,
+                                              size_t byte_count)
+{
+    picomso_packet_header_t header;
+    picomso_data_block_response_t block;
+    size_t total_len;
+
+    assert(byte_count <= PICOMSO_DATA_BLOCK_SIZE);
+    total_len = sizeof(header) + 4u + byte_count;
+    assert(buf_len >= total_len);
+
+    header.magic = PICOMSO_PACKET_MAGIC;
+    header.version_major = PICOMSO_PROTOCOL_VERSION_MAJOR;
+    header.version_minor = PICOMSO_PROTOCOL_VERSION_MINOR;
+    header.msg_type = PICOMSO_MSG_DATA_BLOCK;
+    header.seq = seq;
+    header.length = (uint16_t)(4u + byte_count);
+    memcpy(buf, &header, sizeof(header));
+
+    memset(&block, 0, sizeof(block));
+    block.block_id = block_id;
+    block.data_len = (uint16_t)byte_count;
+    memcpy(block.data, data, byte_count);
     memcpy(buf + sizeof(header), &block, 4u + byte_count);
     return total_len;
 }
@@ -205,15 +236,21 @@ static bool fake_recv_bulk(void *user_data, uint8_t *buf, size_t buf_capacity, s
             return true;
         }
 
-        if (device->scenario == TEST_SCENARIO_END_ON_SHORT_BLOCK) {
+        if (device->scenario == TEST_SCENARIO_SHORT_BLOCK_BEFORE_END) {
             static const uint16_t block0[] = {
                 0x0101u, 0x0102u, 0x0103u, 0x0104u, 0x0105u, 0x0106u, 0x0107u, 0x0108u,
                 0x0109u, 0x010Au, 0x010Bu, 0x010Cu, 0x010Du, 0x010Eu, 0x010Fu, 0x0110u,
                 0x0111u, 0x0112u, 0x0113u, 0x0114u, 0x0115u, 0x0116u, 0x0117u, 0x0118u,
                 0x0119u, 0x011Au, 0x011Bu, 0x011Cu, 0x011Du, 0x011Eu, 0x011Fu, 0x0120u,
             };
-            static const uint16_t block1[] = {
-                0x0201u, 0x0202u, 0x0203u, 0x0204u,
+            static const uint8_t block1[] = {
+                0x01u, 0x20u,
+                0x02u, 0x20u,
+                0x03u, 0x20u,
+                0x04u, 0x20u,
+            };
+            static const uint16_t block2[] = {
+                0x0301u, 0x0302u,
             };
 
             if (device->data_block_count == 1u) {
@@ -222,8 +259,20 @@ static bool fake_recv_bulk(void *user_data, uint8_t *buf, size_t buf_capacity, s
                 return true;
             }
 
-            *received_len = build_data_block_response(buf, buf_capacity, seq, 1u, block1, ARRAY_SIZE(block1));
-            device->data_block_count = 3u;
+            if (device->data_block_count == 2u) {
+                *received_len = build_data_block_response_bytes(buf, buf_capacity, seq, 1u, block1, sizeof(block1));
+                device->data_block_count = 3u;
+                return true;
+            }
+
+            if (device->data_block_count == 3u) {
+                *received_len = build_data_block_response(buf, buf_capacity, seq, 2u, block2, ARRAY_SIZE(block2));
+                device->data_block_count = 4u;
+                return true;
+            }
+
+            *received_len = build_error_response(buf, buf_capacity, seq, PICOMSO_STATUS_ERR_UNKNOWN,
+                                                 PICOMSO_SIGROK_END_OF_CAPTURE_MESSAGE);
             return true;
         }
     }
@@ -292,14 +341,14 @@ static void test_end_on_device_error(void)
     assert(device.request_sequence[4] == PICOMSO_MSG_REQUEST_CAPTURE);
 }
 
-static void test_end_on_short_block(void)
+static void test_short_block_before_end(void)
 {
     fake_device_t device;
     picomso_sigrok_logic_config_t config;
     size_t captured_samples = 0u;
     picomso_sigrok_status_t status;
 
-    init_fake_device(&device, TEST_SCENARIO_END_ON_SHORT_BLOCK);
+    init_fake_device(&device, TEST_SCENARIO_SHORT_BLOCK_BEFORE_END);
     status = picomso_sigrok_dev_open(&device.driver);
     assert(status == PICOMSO_SIGROK_OK);
 
@@ -313,15 +362,15 @@ static void test_end_on_short_block(void)
     status = picomso_sigrok_acquisition_start(&device.driver, &config, collect_samples, &device,
                                               &captured_samples);
     assert(status == PICOMSO_SIGROK_OK);
-    assert(captured_samples == 36u);
-    assert(device.total_samples_seen == 36u);
-    assert(device.last_sample == 0x0204u);
+    assert(captured_samples == 38u);
+    assert(device.total_samples_seen == 38u);
+    assert(device.last_sample == 0x0302u);
 }
 
 int main(void)
 {
     test_end_on_device_error();
-    test_end_on_short_block();
+    test_short_block_before_end();
     puts("picomso_sigrok_driver_test: OK");
     return EXIT_SUCCESS;
 }
