@@ -16,7 +16,7 @@
 
 cmake_minimum_required(VERSION 3.12)
 
-set(PICO_SDK_PATH "${CMAKE_CURRENT_LIST_DIR}/../../../external/pico-sdk")
+set(PICO_SDK_PATH "${CMAKE_CURRENT_LIST_DIR}/../../external/pico-sdk")
 
 if(NOT EXISTS "${PICO_SDK_PATH}/external/pico_sdk_import.cmake")
     message(FATAL_ERROR
@@ -31,7 +31,7 @@ endif()
 
 include("${PICO_SDK_PATH}/external/pico_sdk_import.cmake")
 
-project(picomso_usb_control_plane C CXX ASM)
+project(picomso C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
@@ -42,12 +42,11 @@ pico_sdk_init()
 # share the build directory tree with the main executable without conflicting
 # with any other project build.
 
-add_subdirectory(../../common     ${CMAKE_BINARY_DIR}/picomso_common)
-add_subdirectory(../../mixed_signal ${CMAKE_BINARY_DIR}/picomso_mixed_signal)
-add_subdirectory(../../protocol   ${CMAKE_BINARY_DIR}/picomso_protocol)
-add_subdirectory(../../transport  ${CMAKE_BINARY_DIR}/picomso_transport)
-add_subdirectory(../../integration ${CMAKE_BINARY_DIR}/picomso_integration)
-
+add_subdirectory(../common     ${CMAKE_BINARY_DIR}/picomso_common)
+add_subdirectory(../mixed_signal ${CMAKE_BINARY_DIR}/picomso_mixed_signal)
+add_subdirectory(../protocol   ${CMAKE_BINARY_DIR}/picomso_protocol)
+add_subdirectory(../transport  ${CMAKE_BINARY_DIR}/picomso_transport)
+add_subdirectory(../integration ${CMAKE_BINARY_DIR}/picomso_integration)
 # ── Executable ───────────────────────────────────────────────────────────────
 
 add_executable(${PROJECT_NAME}
