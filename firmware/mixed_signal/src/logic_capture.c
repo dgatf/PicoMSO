@@ -84,7 +84,6 @@ static inline void trigger_handler(void);
 static inline bool set_trigger(trigger_t trigger);
 static inline void capture_complete_handler(void);
 static inline void capture_stop(void);
-static inline uint logic_capture_get_missing_pre_trigger_samples(void);
 
 void logic_capture_reset(void) {
     if (clock_get_hz(clk_sys) != 100000000) {
@@ -284,17 +283,9 @@ bool logic_capture_start(const capture_config_t *config, complete_handler_t hand
 }
 
 uint16_t logic_capture_get_sample_index(int index) {
-    const uint total_samples = (s_phase == LOGIC_CAPTURE_PHASE_FINALIZED) ? s_logic_capture_config.total_samples
-                                                                          : (pre_trigger_count_ + post_trigger_samples_);
-    const uint missing_pre_trigger_samples = logic_capture_get_missing_pre_trigger_samples();
+    uint total_samples = pre_trigger_count_ + post_trigger_samples_;
 
     if (index < 0 || (uint)index >= total_samples) return 0;
-
-    if ((uint)index < missing_pre_trigger_samples) {
-        return 0;
-    }
-
-    index -= (int)missing_pre_trigger_samples;
 
     if ((uint)index < pre_trigger_count_) {
         int pos = pre_trigger_first_ + index;
@@ -310,13 +301,7 @@ uint16_t logic_capture_get_sample_index(int index) {
     return post_trigger_buffer_[index - (int)pre_trigger_count_];
 }
 
-uint logic_capture_get_samples_count(void) {
-    if (s_phase == LOGIC_CAPTURE_PHASE_FINALIZED) {
-        return s_logic_capture_config.total_samples;
-    }
-
-    return pre_trigger_count_ + post_trigger_samples_;
-}
+uint logic_capture_get_samples_count(void) { return pre_trigger_count_ + post_trigger_samples_; }
 
 uint logic_capture_get_pre_trigger_count(void) { return pre_trigger_count_; }
 
@@ -371,14 +356,6 @@ capture_state_t logic_capture_get_state(void) {
     }
 
     return CAPTURE_IDLE;
-}
-
-static inline uint logic_capture_get_missing_pre_trigger_samples(void) {
-    if (pre_trigger_samples_ > pre_trigger_count_) {
-        return pre_trigger_samples_ - pre_trigger_count_;
-    }
-
-    return 0u;
 }
 
 static inline bool set_trigger(trigger_t trigger) {
