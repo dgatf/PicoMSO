@@ -27,6 +27,9 @@ extern "C" {
 
 #include "pico/types.h"
 
+#define PICOMSO_SCOPE_CHANNELS_MIN 1u
+#define PICOMSO_SCOPE_CHANNELS_MAX 2u
+
 // Generic capture state shared across both firmware projects
 typedef enum capture_state_t {
     CAPTURE_IDLE,

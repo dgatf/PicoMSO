@@ -248,6 +248,8 @@ accepted for protocol compatibility but do not yet enable a separate
 analog-trigger algorithm. In scope mode, `total_samples` and
 `pre_trigger_samples` count returned 16-bit ADC conversion words in wire order;
 with `scope_channels = 2`, those words alternate `ch1`, `ch2`, `ch1`, `ch2`, ...
+Two-channel scope requests must therefore use even `total_samples` and even
+`pre_trigger_samples` so the stream always contains complete channel pairs.
 
 After the `ACK`, the host reads the stored completed capture through repeated
 `READ_DATA_BLOCK` requests.

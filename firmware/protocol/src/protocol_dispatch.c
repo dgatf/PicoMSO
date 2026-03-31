@@ -48,8 +48,6 @@
 #define PICOMSO_LOGIC_TRIGGER_PIN_COUNT 16u
 #define PICOMSO_LOGIC_CAPTURE_CHANNELS 16u
 #define PICOMSO_SCOPE_CHANNELS_DEFAULT 1u
-#define PICOMSO_SCOPE_CHANNELS_MIN 1u
-#define PICOMSO_SCOPE_CHANNELS_MAX 2u
 
 /* -----------------------------------------------------------------------
  * Static device capability bitmap.
@@ -136,6 +134,10 @@ static void copy_request_triggers(capture_config_t *capture_config, const picoms
         capture_config->trigger[i].pin = request->trigger[i].pin;
         capture_config->trigger[i].match = protocol_trigger_match_to_internal((picomso_trigger_match_t)request->trigger[i].match);
     }
+}
+
+static bool scope_capture_counts_are_pair_aligned(const capture_config_t *capture_config) {
+    return ((capture_config->total_samples % 2u) == 0u) && ((capture_config->pre_trigger_samples % 2u) == 0u);
 }
 
 /* -----------------------------------------------------------------------
@@ -290,8 +292,10 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         return PICOMSO_STATUS_ERR_UNKNOWN;
     }
 
-    memset(&req, 0, sizeof(req));
     memcpy(&req, payload, hdr->length);
+    if (hdr->length == PICOMSO_REQUEST_CAPTURE_LEGACY_SIZE) {
+        req.scope_channels = 0u;
+    }
     max_samples = (active_mode == CAPTURE_MODE_LOGIC) ? LOGIC_CAPTURE_MAX_SAMPLES : SCOPE_CAPTURE_MAX_SAMPLES;
     if (req.total_samples == 0u || req.total_samples > max_samples || req.pre_trigger_samples > req.total_samples) {
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid capture sizing", resp);
@@ -318,6 +322,12 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         if (capture_config.channels < PICOMSO_SCOPE_CHANNELS_MIN ||
             capture_config.channels > PICOMSO_SCOPE_CHANNELS_MAX) {
             picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid oscilloscope channel count", resp);
+            return PICOMSO_STATUS_ERR_BAD_LEN;
+        }
+        if ((capture_config.channels == PICOMSO_SCOPE_CHANNELS_MAX) &&
+            !scope_capture_counts_are_pair_aligned(&capture_config)) {
+            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN,
+                                "two-channel scope captures require even sample counts", resp);
             return PICOMSO_STATUS_ERR_BAD_LEN;
         }
     }

@@ -31,6 +31,7 @@
 
 #define SCOPE_CAPTURE_ADC_GPIO 26u
 #define SCOPE_CAPTURE_ADC_INPUT 0u
+#define SCOPE_CAPTURE_DEFAULT_CHANNELS 1u
 #define SCOPE_CAPTURE_CHANNEL1_MASK (1u << SCOPE_CAPTURE_ADC_INPUT)
 #define SCOPE_CAPTURE_CHANNEL2_MASK (SCOPE_CAPTURE_CHANNEL1_MASK | (1u << (SCOPE_CAPTURE_ADC_INPUT + 1u)))
 
@@ -53,7 +54,7 @@ typedef enum scope_capture_phase_t {
 static capture_config_t s_scope_capture_config = {.total_samples = 0u,
                                                   .rate = 0u,
                                                   .pre_trigger_samples = 0u,
-                                                  .channels = 1u,
+                                                  .channels = SCOPE_CAPTURE_DEFAULT_CHANNELS,
                                                   .trigger = {
                                                       {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
                                                       {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
@@ -90,7 +91,7 @@ void scope_capture_reset(void) {
     s_scope_capture_config.total_samples = 0u;
     s_scope_capture_config.rate = 0u;
     s_scope_capture_config.pre_trigger_samples = 0u;
-    s_scope_capture_config.channels = 1u;
+    s_scope_capture_config.channels = SCOPE_CAPTURE_DEFAULT_CHANNELS;
     s_capture_read_offset_bytes = 0u;
     pre_trigger_samples_ = 0u;
     post_trigger_samples_ = 0u;
@@ -112,7 +113,7 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
         return false;
     }
 
-    if (config->channels < 1u || config->channels > 2u) {
+    if (config->channels < PICOMSO_SCOPE_CHANNELS_MIN || config->channels > PICOMSO_SCOPE_CHANNELS_MAX) {
         return false;
     }
 
@@ -199,7 +200,6 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
     irq_set_exclusive_handler(DMA_IRQ_0, complete_handler);
     irq_set_enabled(DMA_IRQ_0, true);
 
-    adc_select_input(SCOPE_CAPTURE_ADC_INPUT);
     adc_set_round_robin(scope_capture_channel_mask(s_scope_capture_config.channels));
 
     if (!logic_capture_get_trigger_count()) {

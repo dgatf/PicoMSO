@@ -237,8 +237,10 @@ def format_scope_samples(samples, scope_channels: int):
     if scope_channels == 1:
         return samples
     if scope_channels == 2:
+        if len(samples) % scope_channels != 0:
+            raise RuntimeError("malformed scope data: sample count is not divisible by channel count")
         return [
-            {"ch1": samples[index], "ch2": samples[index + 1] if index + 1 < len(samples) else None}
+            {"ch1": samples[index], "ch2": samples[index + 1]}
             for index in range(0, len(samples), scope_channels)
         ]
     raise ValueError(f"unsupported scope channel count {scope_channels}")
