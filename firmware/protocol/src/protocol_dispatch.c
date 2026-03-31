@@ -27,14 +27,15 @@
  * instance so that the protocol layer reflects real capture mode/state.
  * GET_INFO and GET_CAPABILITIES continue to return static values.
  *
- * The handlers remain transport-agnostic. The only concrete capture dependency
- * is the logic-analyzer backend used by REQUEST_CAPTURE and READ_DATA_BLOCK.
+ * The handlers remain transport-agnostic. Concrete capture backends are
+ * selected by the active mode for REQUEST_CAPTURE and READ_DATA_BLOCK.
  */
 
 #include "protocol.h"
 #include "protocol_packets.h"
 #include "capture_controller.h"
 #include "logic_capture.h"
+#include "scope_capture.h"
 
 #include <string.h>
 
@@ -56,7 +57,7 @@
  * Module-level capture controller instance.
  *
  * The protocol layer owns the control-plane state store and delegates the
- * concrete logic-analyzer data path to firmware/mixed_signal/logic_capture.c.
+ * concrete capture data paths to the mixed-signal backends.
  *
  * Starts in CAPTURE_MODE_UNSET / CAPTURE_IDLE.
  * ----------------------------------------------------------------------- */
@@ -153,6 +154,8 @@ picomso_status_t picomso_handle_get_status(const picomso_packet_header_t *hdr,
 
     if (capture_controller_get_mode(&s_capture_ctrl) == CAPTURE_MODE_LOGIC) {
         capture_controller_set_state(&s_capture_ctrl, logic_capture_get_state());
+    } else if (capture_controller_get_mode(&s_capture_ctrl) == CAPTURE_MODE_OSCILLOSCOPE) {
+        capture_controller_set_state(&s_capture_ctrl, scope_capture_get_state());
     }
 
     picomso_status_response_t status;
@@ -184,6 +187,7 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
     switch ((picomso_device_mode_t)req.mode) {
         case PICOMSO_MODE_UNSET:
             logic_capture_reset();
+            scope_capture_reset();
             capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
             capture_controller_set_mode(&s_capture_ctrl, (capture_mode_t)req.mode);
             picomso_write_ack(hdr->seq, resp);
@@ -191,6 +195,7 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
 
         case PICOMSO_MODE_LOGIC:
             logic_capture_reset();
+            scope_capture_reset();
             capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
             capture_controller_set_mode(&s_capture_ctrl, (capture_mode_t)req.mode);
             picomso_write_ack(hdr->seq, resp);
@@ -198,6 +203,7 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
 
         case PICOMSO_MODE_OSCILLOSCOPE:
             logic_capture_reset();
+            scope_capture_reset();
             capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
             capture_controller_set_mode(&s_capture_ctrl, (capture_mode_t)req.mode);
             picomso_write_ack(hdr->seq, resp);
@@ -213,7 +219,7 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
 /* -----------------------------------------------------------------------
  * REQUEST_CAPTURE handler
  *
- * Performs the full one-shot logic capture synchronously. The completed
+ * Performs the full one-shot capture synchronously for the active mode. The completed
  * capture is stored in the backend and only becomes visible through later
  * READ_DATA_BLOCK calls once acquisition is finished.
  * ----------------------------------------------------------------------- */
@@ -223,6 +229,9 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
                                                 picomso_response_t            *resp)
 {
     picomso_request_capture_request_t req;
+    capture_mode_t active_mode;
+    uint32_t max_samples;
+    bool capture_started;
     capture_config_t capture_config = {
         .total_samples = 0u,
         .rate = 0u,
@@ -240,9 +249,11 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         }
     };
 
-    if (capture_controller_get_mode(&s_capture_ctrl) != CAPTURE_MODE_LOGIC) {
+    active_mode = capture_controller_get_mode(&s_capture_ctrl);
+    if (active_mode != CAPTURE_MODE_LOGIC &&
+        active_mode != CAPTURE_MODE_OSCILLOSCOPE) {
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE,
-                            "logic mode not active", resp);
+                            "capture mode not active", resp);
         return PICOMSO_STATUS_ERR_BAD_MODE;
     }
 
@@ -253,7 +264,8 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     }
 
     memcpy(&req, payload, sizeof(req));
-    if (req.total_samples == 0u || req.total_samples > LOGIC_CAPTURE_MAX_SAMPLES ||
+    max_samples = (active_mode == CAPTURE_MODE_LOGIC) ? LOGIC_CAPTURE_MAX_SAMPLES : SCOPE_CAPTURE_MAX_SAMPLES;
+    if (req.total_samples == 0u || req.total_samples > max_samples ||
         req.pre_trigger_samples > req.total_samples) {
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN,
                             "invalid capture sizing", resp);
@@ -264,7 +276,10 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     capture_config.pre_trigger_samples = req.pre_trigger_samples;
 
     capture_controller_set_state(&s_capture_ctrl, CAPTURE_RUNNING);
-    if (!logic_capture_start(&capture_config)) {
+    capture_started = (active_mode == CAPTURE_MODE_LOGIC)
+                          ? logic_capture_start(&capture_config)
+                          : scope_capture_start(&capture_config);
+    if (!capture_started) {
         capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN,
                             "capture request failed", resp);
@@ -279,7 +294,7 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
 /* -----------------------------------------------------------------------
  * READ_DATA_BLOCK handler
  *
- * Returns one fixed-size chunk from the completed logic-analyzer capture.
+ * Returns one fixed-size chunk from the completed stored capture.
  * No acquisition runs in this handler; it only reads from finalized storage.
  *
  * Thread-safety: this handler, like all handlers in this file, assumes a
@@ -292,21 +307,31 @@ picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *h
                                                 picomso_response_t            *resp)
 {
     (void)payload; /* READ_DATA_BLOCK carries no request payload */
-    if (capture_controller_get_mode(&s_capture_ctrl) != CAPTURE_MODE_LOGIC) {
+    capture_mode_t active_mode = capture_controller_get_mode(&s_capture_ctrl);
+    bool read_ok;
+
+    if (active_mode != CAPTURE_MODE_LOGIC &&
+        active_mode != CAPTURE_MODE_OSCILLOSCOPE) {
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE,
-                            "logic mode not active", resp);
+                            "capture mode not active", resp);
         return PICOMSO_STATUS_ERR_BAD_MODE;
     }
 
     picomso_data_block_response_t blk;
     memset(&blk, 0, sizeof(blk));
-    if (!logic_capture_read_block(&blk.block_id, blk.data, &blk.data_len)) {
+    read_ok = (active_mode == CAPTURE_MODE_LOGIC)
+                  ? logic_capture_read_block(&blk.block_id, blk.data, &blk.data_len)
+                  : scope_capture_read_block(&blk.block_id, blk.data, &blk.data_len);
+    if (!read_ok) {
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN,
                             "no finalized capture data", resp);
         return PICOMSO_STATUS_ERR_UNKNOWN;
     }
 
-    capture_controller_set_state(&s_capture_ctrl, logic_capture_get_state());
+    capture_controller_set_state(&s_capture_ctrl,
+                                 (active_mode == CAPTURE_MODE_LOGIC)
+                                     ? logic_capture_get_state()
+                                     : scope_capture_get_state());
 
     build_response(hdr, PICOMSO_MSG_DATA_BLOCK,
                    &blk, (uint16_t)sizeof(blk), resp);

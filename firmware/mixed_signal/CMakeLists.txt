@@ -1,5 +1,6 @@
 add_library(picomso_firmware_mixed_signal STATIC
     src/logic_capture.c
+    src/scope_capture.c
 )
 
 target_include_directories(picomso_firmware_mixed_signal
@@ -10,6 +11,7 @@ target_include_directories(picomso_firmware_mixed_signal
 target_link_libraries(picomso_firmware_mixed_signal
     PUBLIC
         pico_stdlib
+        hardware_adc
         hardware_gpio
         picomso_common
 )

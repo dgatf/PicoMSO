@@ -26,20 +26,20 @@
  *   4. Capture controller     (firmware/common/)
  *
  * Control-plane commands handled: GET_INFO, GET_CAPABILITIES,
- * GET_STATUS, SET_MODE, REQUEST_CAPTURE.
+ * GET_STATUS, SET_MODE, REQUEST_CAPTURE, READ_DATA_BLOCK.
  *
- * Logic capture flow handled here:
- *   1. The host selects logic mode with SET_MODE(LOGIC).
+ * One-shot capture flow handled here:
+ *   1. The host selects logic or oscilloscope mode with SET_MODE().
  *   2. The host sends REQUEST_CAPTURE with the requested total sample count.
- *   3. The device performs the full one-shot logic capture on GPIO 0..15.
+ *   3. The device performs the full one-shot capture for the selected mode.
  *   4. Only after capture completion does READ_DATA_BLOCK return fixed-size
  *      chunks from the finalized stored capture over the EP6 IN bulk endpoint.
  *
  * Out of scope for this example:
- *   - Oscilloscope capture
- *   - Shared logic/scope abstractions beyond this logic path
  *   - SUMP protocol
  *   - Live data streaming during acquisition
+ *   - A separate oscilloscope-specific trigger algorithm
+ *   - Shared logic/scope abstractions beyond the current one-shot paths
  *
  * Wire path (control-plane commands):
  *   Host (vendor OUT control transfer on EP0)
