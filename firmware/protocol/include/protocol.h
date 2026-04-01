@@ -1,7 +1,6 @@
 /*
- * This file is part of the libsigrok project.
- *
- * Copyright (C) 2026
+ * PicoMSO - RP2040 Mixed Signal Oscilloscope
+ * Copyright (C) 2024 Daniel Gorbea <danielgorbea@hotmail.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,196 +16,209 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef LIBSIGROK_HARDWARE_PICOMSO_PROTOCOL_H
-#define LIBSIGROK_HARDWARE_PICOMSO_PROTOCOL_H
+/*
+ * PicoMSO unified protocol – transport-agnostic skeleton (Phase 0).
+ *
+ * This header defines the wire format, message-type enumeration, and
+ * request/response dispatch API for the future PicoMSO host protocol.
+ *
+ * Intentional constraints for Phase 0:
+ *   - No dependency on USB, CDC, bulk endpoints, PIO, ADC, or DMA.
+ *   - No dependency on any specific transport framing layer.
+ *   - Callers supply raw byte buffers; the layer parses and dispatches.
+ *   - The initial commands handled are GET_INFO, GET_CAPABILITIES,
+ *     GET_STATUS, SET_MODE, REQUEST_CAPTURE, and READ_DATA_BLOCK.
+ *   - The existing SUMP and oscilloscope protocols are NOT replaced.
+ */
 
-#include <glib.h>
+#ifndef PICOMSO_PROTOCOL_H
+#define PICOMSO_PROTOCOL_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <libusb.h>
-#include <libsigrok/libsigrok.h>
-#include "libsigrok-internal.h"
 
-#define LOG_PREFIX "picomso"
+/* -----------------------------------------------------------------------
+ * Version constants
+ * ----------------------------------------------------------------------- */
 
-#define USB_INTERFACE                   0
-#define USB_CONFIGURATION               1
-
-#define NUM_CHANNELS                    16
-#define NUM_ANALOG_CHANNELS             1
-
-#define PICOMSO_USB_TIMEOUT_MS          500
-#define PICOMSO_POLL_INTERVAL_MS        10
-#define PICOMSO_PROTOCOL_IO_BUFFER_SIZE 256u
-#define PICOMSO_PROTOCOL_ERROR_TEXT_MAX 64u
-
-#define PICOMSO_BULK_EP_IN              0x86
-#define PICOMSO_CTRL_REQUEST_OUT        0x01
-
+/** Protocol major version.  Bump when wire format changes incompatibly. */
 #define PICOMSO_PROTOCOL_VERSION_MAJOR  0
+
+/** Protocol minor version.  Bump when new commands are added. */
 #define PICOMSO_PROTOCOL_VERSION_MINOR  3
 
-#define PICOMSO_PACKET_MAGIC            UINT16_C(0x4D53)
-#define PICOMSO_PACKET_HEADER_SIZE      8u
+/* -----------------------------------------------------------------------
+ * Packet framing constants
+ * ----------------------------------------------------------------------- */
 
-#define PICOMSO_DEFAULT_LIMIT_SAMPLES   1024u
-#define PICOMSO_MAX_PRE_TRIGGER_SAMPLES 1024u
-#define PICOMSO_MAX_POST_TRIGGER_SAMPLES 10000u
-#define PICOMSO_MAX_TOTAL_SAMPLES \
-    (PICOMSO_MAX_PRE_TRIGGER_SAMPLES + PICOMSO_MAX_POST_TRIGGER_SAMPLES)
-
-#define PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT 4u
-#define PICOMSO_DATA_BLOCK_SIZE 64u
+/**
+ * Two-byte magic value placed at the start of every packet ("MS" in ASCII,
+ * little-endian: 0x53 0x4D on the wire).
+ */
+#define PICOMSO_PACKET_MAGIC       UINT16_C(0x4D53)
 
 #define PICOMSO_CAP_LOGIC UINT32_C(1 << 0)
 #define PICOMSO_CAP_SCOPE UINT32_C(1 << 1)
 
-enum picomso_msg_type {
-    PICOMSO_MSG_GET_INFO         = 0x01,
-    PICOMSO_MSG_GET_CAPABILITIES = 0x02,
-    PICOMSO_MSG_GET_STATUS       = 0x03,
-    PICOMSO_MSG_SET_MODE         = 0x04,
-    PICOMSO_MSG_REQUEST_CAPTURE  = 0x05,
-    PICOMSO_MSG_READ_DATA_BLOCK  = 0x06,
+/** Minimum number of bytes a valid packet must supply. */
+#define PICOMSO_PACKET_HEADER_SIZE  ((size_t)sizeof(picomso_packet_header_t))
 
-    PICOMSO_MSG_ACK        = 0x80,
-    PICOMSO_MSG_ERROR      = 0x81,
-    PICOMSO_MSG_DATA_BLOCK = 0x82,
-};
+/** Maximum payload length accepted by this implementation (bytes). */
+#define PICOMSO_MAX_PAYLOAD_LEN  UINT16_C(512)
 
-enum picomso_status_code {
-    PICOMSO_STATUS_OK            = 0x00,
-    PICOMSO_STATUS_ERR_UNKNOWN   = 0x01,
-    PICOMSO_STATUS_ERR_BAD_MAGIC = 0x02,
-    PICOMSO_STATUS_ERR_BAD_LEN   = 0x03,
-    PICOMSO_STATUS_ERR_BAD_MODE  = 0x04,
-    PICOMSO_STATUS_ERR_VERSION   = 0x05,
-};
-
-/*
- * Stream selection mask used by the control plane.
+/* -----------------------------------------------------------------------
+ * Packet header
  *
- * 0x00: no streams enabled
- * 0x01: logic stream enabled
- * 0x02: scope stream enabled
- * 0x03: logic + scope enabled (mixed)
- */
-enum picomso_stream_mask {
-    PICOMSO_STREAM_NONE  = 0x00,
-    PICOMSO_STREAM_LOGIC = 1u << 0,
-    PICOMSO_STREAM_SCOPE = 1u << 1,
-};
-
-/*
- * Concrete stream identity for a single DATA_BLOCK packet.
+ * All multi-byte fields are little-endian.
  *
- * A transmitted block belongs to exactly one stream, even when the
- * device is configured with multiple enabled streams.
+ * Offset  Size  Field
+ *   0      2    magic        – must equal PICOMSO_PACKET_MAGIC
+ *   2      1    version_major
+ *   3      1    version_minor
+ *   4      1    msg_type     – picomso_msg_type_t
+ *   5      1    seq          – sequence number (echoed in response)
+ *   6      2    length       – byte count of payload that follows the header
+ * ----------------------------------------------------------------------- */
+
+typedef struct {
+    uint16_t magic;
+    uint8_t  version_major;
+    uint8_t  version_minor;
+    uint8_t  msg_type;
+    uint8_t  seq;
+    uint16_t length;
+} __attribute__((packed)) picomso_packet_header_t;
+
+/* -----------------------------------------------------------------------
+ * Message type enumeration
+ * ----------------------------------------------------------------------- */
+
+typedef enum {
+    /* Requests (host → device) */
+    PICOMSO_MSG_GET_INFO          = 0x01,
+    PICOMSO_MSG_GET_CAPABILITIES  = 0x02,
+    PICOMSO_MSG_GET_STATUS        = 0x03,
+    PICOMSO_MSG_SET_MODE          = 0x04,
+    PICOMSO_MSG_REQUEST_CAPTURE   = 0x05, /**< Perform one full one-shot capture request */
+    PICOMSO_MSG_READ_DATA_BLOCK   = 0x06, /**< Read one chunk from the finalized capture buffer */
+
+    /* Responses (device → host) */
+    PICOMSO_MSG_ACK               = 0x80,
+    PICOMSO_MSG_ERROR             = 0x81,
+    PICOMSO_MSG_DATA_BLOCK        = 0x82, /**< Data-plane response carrying sample bytes */
+} picomso_msg_type_t;
+
+/* -----------------------------------------------------------------------
+ * Status / error codes
+ * ----------------------------------------------------------------------- */
+
+typedef enum {
+    PICOMSO_STATUS_OK             = 0x00,
+    PICOMSO_STATUS_ERR_UNKNOWN    = 0x01, /**< Unrecognised command */
+    PICOMSO_STATUS_ERR_BAD_MAGIC  = 0x02, /**< Magic bytes mismatch */
+    PICOMSO_STATUS_ERR_BAD_LEN    = 0x03, /**< Payload length out of range */
+    PICOMSO_STATUS_ERR_BAD_MODE   = 0x04, /**< Unknown mode in SET_MODE */
+    PICOMSO_STATUS_ERR_VERSION    = 0x05, /**< Incompatible protocol version */
+} picomso_status_t;
+
+/* -----------------------------------------------------------------------
+ * ACK packet (device → host, on success)
+ *
+ * Header msg_type = PICOMSO_MSG_ACK
+ * Payload:
+ *   Offset  Size  Field
+ *     0      1    status   – PICOMSO_STATUS_OK
+ * ----------------------------------------------------------------------- */
+
+typedef struct {
+    uint8_t status;
+} __attribute__((packed)) picomso_ack_payload_t;
+
+/* -----------------------------------------------------------------------
+ * ERROR packet (device → host, on failure)
+ *
+ * Header msg_type = PICOMSO_MSG_ERROR
+ * Payload:
+ *   Offset  Size  Field
+ *     0      1    status      – picomso_status_t error code
+ *     1      1    msg_len     – byte length of the human-readable message
+ *     2    msg_len  message   – UTF-8 string (no NUL terminator on wire)
+ * ----------------------------------------------------------------------- */
+
+typedef struct {
+    uint8_t status;
+    uint8_t msg_len;
+    /* Followed by msg_len bytes of human-readable text. */
+} __attribute__((packed)) picomso_error_payload_t;
+
+/* -----------------------------------------------------------------------
+ * Response buffer
+ *
+ * Callers pass a picomso_response_t into picomso_dispatch().  On return
+ * 'used' contains the number of bytes written into 'buf'.  The buffer
+ * includes the full response packet (header + payload).
+ *
+ * The buffer size is chosen to be large enough for any response produced
+ * by this implementation.
+ * ----------------------------------------------------------------------- */
+
+/** Size in bytes of each logic-capture payload block returned by READ_DATA_BLOCK. */
+#define PICOMSO_DATA_BLOCK_SIZE  64u
+
+/** Response buffer large enough for any packet this implementation produces. */
+#define PICOMSO_RESPONSE_BUF_SIZE  256u
+
+typedef struct {
+    uint8_t buf[PICOMSO_RESPONSE_BUF_SIZE];
+    size_t  used;
+} picomso_response_t;
+
+/* -----------------------------------------------------------------------
+ * Dispatch API
+ * ----------------------------------------------------------------------- */
+
+/**
+ * Validate and dispatch one incoming packet.
+ *
+ * @param in_buf   Pointer to the raw received bytes (header + payload).
+ * @param in_len   Total byte count of in_buf.
+ * @param resp     Output buffer.  On success or recognised-error, a full
+ *                 response packet is written here and resp->used is set.
+ *                 On catastrophic framing failure resp->used is set to 0.
+ * @return PICOMSO_STATUS_OK if the packet was handled without error,
+ *         or a picomso_status_t error code otherwise.
  */
-enum picomso_stream_id {
-    PICOMSO_STREAM_ID_NONE  = 0x00,
-    PICOMSO_STREAM_ID_LOGIC = 0x01,
-    PICOMSO_STREAM_ID_SCOPE = 0x02,
-};
+picomso_status_t picomso_dispatch(const uint8_t      *in_buf,
+                                  size_t              in_len,
+                                  picomso_response_t *resp);
 
-enum picomso_capture_state {
-    PICOMSO_CAPTURE_IDLE    = 0x00,
-    PICOMSO_CAPTURE_RUNNING = 0x01,
-};
+/**
+ * Write a complete ACK response packet into resp.
+ *
+ * @param seq   Sequence number copied from the incoming request header.
+ * @param resp  Output buffer to write into.
+ */
+void picomso_write_ack(uint8_t seq, picomso_response_t *resp);
 
-enum picomso_trigger_match {
-    PICOMSO_TRIGGER_MATCH_LEVEL_LOW  = 0x00,
-    PICOMSO_TRIGGER_MATCH_LEVEL_HIGH = 0x01,
-    PICOMSO_TRIGGER_MATCH_EDGE_LOW   = 0x02,
-    PICOMSO_TRIGGER_MATCH_EDGE_HIGH  = 0x03,
-};
+/**
+ * Write a complete ERROR response packet into resp.
+ *
+ * @param seq     Sequence number copied from the incoming request header.
+ * @param status  Error code (must not be PICOMSO_STATUS_OK).
+ * @param msg     Human-readable NUL-terminated string (may be NULL).
+ * @param resp    Output buffer to write into.
+ */
+void picomso_write_error(uint8_t            seq,
+                         picomso_status_t   status,
+                         const char        *msg,
+                         picomso_response_t *resp);
 
-enum picomso_acq_state {
-    PICOMSO_ACQ_IDLE,
-    PICOMSO_ACQ_WAITING,
-    PICOMSO_ACQ_READING,
-};
-
-struct picomso_profile {
-    uint16_t vid;
-    uint16_t pid;
-
-    const char *vendor;
-    const char *model;
-    const char *model_version;
-
-    const char *usb_manufacturer;
-    const char *usb_product;
-};
-
-struct picomso_trigger_config {
-    uint8_t is_enabled;
-    uint8_t pin;
-    uint8_t match;
-};
-
-struct picomso_request_capture {
-    uint32_t total_samples;
-    uint32_t rate;
-    uint32_t pre_trigger_samples;
-    struct picomso_trigger_config trigger[PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT];
-};
-
-struct picomso_info {
-    uint8_t protocol_version_major;
-    uint8_t protocol_version_minor;
-    char fw_id[32];
-};
-
-struct picomso_status {
-    uint8_t streams;
-    uint8_t capture_state;
-};
-
-struct picomso_data_block {
-    uint8_t  stream_id;
-    uint8_t  flags;
-    uint16_t block_id;
-    uint16_t data_len;
-    uint8_t  data[PICOMSO_DATA_BLOCK_SIZE];
-};
-
-struct dev_context {
-    const struct picomso_profile *profile;
-    char **channel_names;
-
-    const uint64_t *samplerates;
-    int num_samplerates;
-
-    uint64_t cur_samplerate;
-    uint64_t limit_samples;
-    uint64_t capture_ratio;
-    uint64_t sent_samples;
-
-    uint32_t capabilities;
-    struct picomso_info info;
-
-    uint8_t next_seq;
-    uint8_t last_device_status;
-    char last_error_text[PICOMSO_PROTOCOL_ERROR_TEXT_MAX];
-
-    gboolean acq_aborted;
-    enum picomso_acq_state acq_state;
-
-    uint8_t enabled_streams;
-
-    uint16_t expected_logic_block_id;
-    uint16_t expected_scope_block_id;
-
-    gint64 capture_deadline_us;
-
-    GSList *enabled_analog_channels;
-};
-
-SR_PRIV int picomso_dev_open(struct sr_dev_inst *sdi, struct sr_dev_driver *di);
-SR_PRIV struct dev_context *picomso_dev_new(void);
-SR_PRIV int picomso_start_acquisition(const struct sr_dev_inst *sdi);
-SR_PRIV void picomso_abort_acquisition(struct dev_context *devc);
-
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* PICOMSO_PROTOCOL_H */
