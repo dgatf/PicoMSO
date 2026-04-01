@@ -1,32 +1,3 @@
-/*
- * PicoMSO - RP2040 Mixed Signal Oscilloscope
- * Copyright (C) 2024 Daniel Gorbea <danielgorbea@hotmail.com>
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
-
-/*
- * PicoMSO unified protocol – per-command packet structures (Phase 0).
- *
- * Each command supported by this phase is defined here as a pair of
- * packed C structs: one for the request payload and one for the response
- * payload.  The outermost framing (picomso_packet_header_t) is defined in
- * protocol.h and is not repeated here.
- *
- * All multi-byte fields are little-endian unless noted otherwise.
- */
-
 #ifndef PICOMSO_PROTOCOL_PACKETS_H
 #define PICOMSO_PROTOCOL_PACKETS_H
 
@@ -35,71 +6,42 @@ extern "C" {
 #endif
 
 #include <stdint.h>
-
 #include "protocol.h"
 
 /* -----------------------------------------------------------------------
- * GET_INFO  (PICOMSO_MSG_GET_INFO = 0x01)
- *
- * Request:  No payload (header.length == 0).
- *
- * Response: picomso_info_response_t
- *   Returns a human-readable firmware identifier string, the protocol
- *   version the device speaks, and a device capability bitmap (see
- *   GET_CAPABILITIES for bit definitions).
+ * STREAM DEFINITIONS
  * ----------------------------------------------------------------------- */
 
-/** Maximum length of the firmware identifier string (including NUL). */
+#define PICOMSO_STREAM_NONE   UINT8_C(0)
+#define PICOMSO_STREAM_LOGIC  UINT8_C(1 << 0)
+#define PICOMSO_STREAM_SCOPE  UINT8_C(1 << 1)
+
+/* -----------------------------------------------------------------------
+ * GET_INFO
+ * ----------------------------------------------------------------------- */
+
 #define PICOMSO_INFO_FW_ID_MAX  32u
 
 typedef struct {
-    uint8_t  protocol_version_major;
-    uint8_t  protocol_version_minor;
-    char     fw_id[PICOMSO_INFO_FW_ID_MAX]; /**< NUL-terminated ASCII string */
+    uint8_t protocol_version_major;
+    uint8_t protocol_version_minor;
+    char fw_id[PICOMSO_INFO_FW_ID_MAX];
 } __attribute__((packed)) picomso_info_response_t;
 
 /* -----------------------------------------------------------------------
- * GET_CAPABILITIES  (PICOMSO_MSG_GET_CAPABILITIES = 0x02)
- *
- * Request:  No payload (header.length == 0).
- *
- * Response: picomso_capabilities_response_t
- *   A 32-bit capability bitmap.  Bit assignments:
- *     bit 0  – PICOMSO_CAP_LOGIC   : device supports logic-analyser mode
- *     bit 1  – PICOMSO_CAP_SCOPE   : device supports oscilloscope mode
- *     bits 2–31 reserved, must be zero.
+ * GET_CAPABILITIES
  * ----------------------------------------------------------------------- */
 
 #define PICOMSO_CAP_LOGIC  UINT32_C(1 << 0)
 #define PICOMSO_CAP_SCOPE  UINT32_C(1 << 1)
 
 typedef struct {
-    uint32_t capabilities; /**< Capability bitmap (see PICOMSO_CAP_* above) */
+    uint32_t capabilities;
 } __attribute__((packed)) picomso_capabilities_response_t;
 
 /* -----------------------------------------------------------------------
- * GET_STATUS  (PICOMSO_MSG_GET_STATUS = 0x03)
- *
- * Request:  No payload (header.length == 0).
- *
- * Response: picomso_status_response_t
- *   Returns the current operating mode and capture state.
- *
- *   mode values:
- *     0x00 – PICOMSO_MODE_UNSET        (no mode selected)
- *     0x01 – PICOMSO_MODE_LOGIC        (logic-analyser back-end active)
- *     0x02 – PICOMSO_MODE_OSCILLOSCOPE (oscilloscope back-end active)
- *
- *   capture_state values:
- *     0x00 – PICOMSO_CAPTURE_IDLE    (no capture in progress)
- *     0x01 – PICOMSO_CAPTURE_RUNNING (capture active)
+ * GET_STATUS
  * ----------------------------------------------------------------------- */
-
-typedef enum {
-    PICOMSO_MODE_UNSET        = 0x00,
-    PICOMSO_MODE_LOGIC        = 0x01,
-    PICOMSO_MODE_OSCILLOSCOPE = 0x02,
-} picomso_device_mode_t;
 
 typedef enum {
     PICOMSO_CAPTURE_IDLE    = 0x00,
@@ -107,49 +49,20 @@ typedef enum {
 } picomso_capture_state_t;
 
 typedef struct {
-    uint8_t mode;          /**< picomso_device_mode_t    */
-    uint8_t capture_state; /**< picomso_capture_state_t  */
+    uint8_t streams;       /**< Bitmask of PICOMSO_STREAM_* */
+    uint8_t capture_state; /**< picomso_capture_state_t     */
 } __attribute__((packed)) picomso_status_response_t;
 
 /* -----------------------------------------------------------------------
- * SET_MODE  (PICOMSO_MSG_SET_MODE = 0x04)
- *
- * Request:  picomso_set_mode_request_t
- *   Instructs the device to switch to the specified operating mode.
- *   The device must not be in CAPTURE_RUNNING state when this command
- *   is issued; if it is, the device returns PICOMSO_STATUS_ERR_BAD_MODE.
- *
- *   mode values: same as picomso_device_mode_t above.
- *
- * Response: ACK packet (no additional payload) on success, or ERROR packet
- *   with PICOMSO_STATUS_ERR_BAD_MODE if the mode value is unknown.
+ * SET_MODE (now SET_STREAMS conceptually)
  * ----------------------------------------------------------------------- */
 
 typedef struct {
-    uint8_t mode; /**< picomso_device_mode_t */
+    uint8_t streams; /**< Bitmask of PICOMSO_STREAM_* */
 } __attribute__((packed)) picomso_set_mode_request_t;
 
 /* -----------------------------------------------------------------------
- * REQUEST_CAPTURE  (PICOMSO_MSG_REQUEST_CAPTURE = 0x05)
- *
- * Request:  picomso_request_capture_request_t
- *   Starts one full capture for the active mode.
- *
- *   Fields:
- *     total_samples        Total requested capture length in samples.
- *     rate                 Requested sample rate in samples per second.
- *     pre_trigger_samples  Requested number of pre-trigger samples.
- *     trigger[4]           Logic trigger configuration array. Each entry carries
- *                          is_enabled, pin, and match type.
- *
- *   For logic mode, capture start may be asynchronous depending on the
- *   backend implementation. In that case, the command is acknowledged once
- *   the capture has been successfully armed, and capture completion is
- *   reflected later through GET_STATUS / READ_DATA_BLOCK.
- *
- *   The completed capture remains stored for later READ_DATA_BLOCK requests.
- *
- * Response: ACK packet (no additional payload) on success.
+ * REQUEST_CAPTURE
  * ----------------------------------------------------------------------- */
 
 #define PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT  4u
@@ -162,60 +75,48 @@ typedef enum {
 } picomso_trigger_match_t;
 
 typedef struct {
-    uint8_t is_enabled; /**< 0 = disabled, 1 = enabled */
-    uint8_t pin;        /**< GPIO index used by the trigger */
-    uint8_t match;      /**< picomso_trigger_match_t */
+    uint8_t is_enabled;
+    uint8_t pin;
+    uint8_t match;
 } __attribute__((packed)) picomso_trigger_config_t;
 
 typedef struct {
-    uint32_t total_samples;       /**< Full requested capture length in samples     */
-    uint32_t rate;                /**< Requested sample rate in samples per second  */
-    uint32_t pre_trigger_samples; /**< Requested pre-trigger sample count           */
+    uint32_t total_samples;
+    uint32_t rate;
+    uint32_t pre_trigger_samples;
     picomso_trigger_config_t trigger[PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT];
 } __attribute__((packed)) picomso_request_capture_request_t;
 
 /* -----------------------------------------------------------------------
- * READ_DATA_BLOCK  (PICOMSO_MSG_READ_DATA_BLOCK = 0x06)
- *
- * Request:  No payload (header.length == 0).
- *   Asks the device to return one fixed-size chunk from the completed capture
- *   buffer. Acquisition must already be finished before readout begins.
- *
- * Response: picomso_data_block_response_t  (msg_type = PICOMSO_MSG_DATA_BLOCK)
- *   The response is delivered over the BULK IN endpoint (EP6_IN).  The
- *   control plane remains on EP0; this response is the first data-plane
- *   packet in the PicoMSO protocol.
- *
- *   READ_DATA_BLOCK does not expose live acquisition data.
- *   It only serves bytes from a finalized stored capture.
+ * READ_DATA_BLOCK / DATA_BLOCK
  * ----------------------------------------------------------------------- */
 
-/**
- * READ_DATA_BLOCK carries no request payload.
- * The host simply sends a header with msg_type = PICOMSO_MSG_READ_DATA_BLOCK
- * and header.length = 0 to receive the next chunk from the stored capture.
+/*
+ * New payload layout (mixed-ready):
+ *
+ * Offset   Size    Field
+ *   0        1     stream_id
+ *   1        1     flags
+ *   2        2     block_id
+ *   4        2     data_len
+ *   6      data_len data[]
  */
 
-/**
- * DATA_BLOCK response payload.
- *
- * Offset   Size        Field       Description
- *   0        2         block_id    Monotonically incrementing block counter.
- *   2        2         data_len    Byte count of the following sample data.
- *   4      data_len    data        Raw sample bytes.
- *
- * The full response wire format is:
- *   picomso_packet_header_t  (8 bytes, msg_type = PICOMSO_MSG_DATA_BLOCK)
- *   picomso_data_block_response_t
- */
+typedef enum {
+    PICOMSO_STREAM_ID_LOGIC = 1,
+    PICOMSO_STREAM_ID_SCOPE = 2,
+} picomso_stream_id_t;
+
 typedef struct {
-    uint16_t block_id; /**< Monotonically incrementing block counter       */
-    uint16_t data_len; /**< Byte count of the data[] field that follows    */
-    uint8_t  data[PICOMSO_DATA_BLOCK_SIZE]; /**< Sample bytes              */
+    uint8_t  stream_id; /**< picomso_stream_id_t */
+    uint8_t  flags;
+    uint16_t block_id;  /**< 16-bit as agreed */
+    uint16_t data_len;
+    uint8_t  data[PICOMSO_DATA_BLOCK_SIZE];
 } __attribute__((packed)) picomso_data_block_response_t;
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* PICOMSO_PROTOCOL_PACKETS_H */
+#endif

@@ -18,23 +18,28 @@
 
 #include "capture_controller.h"
 
-void capture_controller_init(capture_controller_t *ctrl) {
-    ctrl->mode = CAPTURE_MODE_UNSET;
+void capture_controller_init(capture_controller_t *ctrl)
+{
+    ctrl->streams_enabled = PICOMSO_STREAM_NONE;
     ctrl->state = CAPTURE_IDLE;
 }
 
-void capture_controller_set_mode(capture_controller_t *ctrl, capture_mode_t mode) {
-    ctrl->mode = mode;
+void capture_controller_set_streams(capture_controller_t *ctrl, uint8_t streams)
+{
+    ctrl->streams_enabled = streams;
 }
 
-void capture_controller_set_state(capture_controller_t *ctrl, capture_state_t state) {
+void capture_controller_set_state(capture_controller_t *ctrl, capture_state_t state)
+{
     ctrl->state = state;
 }
 
-capture_mode_t capture_controller_get_mode(const capture_controller_t *ctrl) {
-    return ctrl->mode;
+uint8_t capture_controller_get_streams(const capture_controller_t *ctrl)
+{
+    return ctrl->streams_enabled;
 }
 
-capture_state_t capture_controller_get_state(const capture_controller_t *ctrl) {
+capture_state_t capture_controller_get_state(const capture_controller_t *ctrl)
+{
     return ctrl->state;
 }
