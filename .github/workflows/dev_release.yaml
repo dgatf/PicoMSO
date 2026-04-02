@@ -31,9 +31,9 @@ jobs:
       - name: Build firmware
         uses: samyarsadat/Pico-Build-Action@v1
         with:
-          source_dir: "firmware/app"
+          source_dir: "."
           output_dir: "build/picomso"
-          cmake_args: "-DCMAKE_BUILD_TYPE=Release"
+          cmake_args: "-DCMAKE_BUILD_TYPE=Release -S firmware/app -B build/picomso"
 
       - name: Prepare artifact
         run: |
