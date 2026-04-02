@@ -25,6 +25,75 @@ data displayed in the same session.
 
 ![PicoMSO PulseView example](docs/images/picomso-pulseview.png)
 
+## libsigrok command-line examples
+
+The examples below use `sigrok-cli` with the PicoMSO driver.
+
+### Show device information
+
+List detected devices:
+
+```bash
+sigrok-cli --scan
+```
+
+Show PicoMSO device information and supported options:
+
+```bash
+sigrok-cli -d picomso --show
+```
+
+### Capture logic data
+
+Capture 1000 logic samples at 5 kHz from the default enabled logic channels:
+
+```bash
+sigrok-cli -d picomso --samples 1000 --config samplerate=5k
+```
+
+Capture logic data with a rising-edge trigger on channel `D0`:
+
+```bash
+sigrok-cli -d picomso --samples 1000 --config samplerate=5k --triggers D0=r
+```
+
+### Capture analog data
+
+Capture 1000 analog samples from channel `A0` at 5 kHz:
+
+```bash
+sigrok-cli -d picomso --channels A0 --samples 1000 --config samplerate=5k
+```
+
+### Mixed-signal capture
+
+Capture logic channel `D0` together with analog channel `A0` in the same session:
+
+```bash
+sigrok-cli -d picomso --channels D0,A0 --samples 1000 --config samplerate=5k
+```
+
+Capture mixed-signal data with a trigger on `D0`:
+
+```bash
+sigrok-cli -d picomso --channels D0,A0 --samples 1000 --config samplerate=5k --triggers D0=r
+```
+
+### Save capture data
+
+Save a capture to a Sigrok session file:
+
+```bash
+sigrok-cli -d picomso --channels D0,A0 --samples 1000 --config samplerate=5k -o capture.sr
+```
+
+### Notes
+
+- `samplerate` must be one of the rates reported by `sigrok-cli -d picomso --show`.
+- `--samples` sets the capture length.
+- `--triggers` currently applies to logic channels.
+- Channel names are exposed as `D0` to `D15` for logic and `A0` for analog.
+
 ## Build
 
 Initialize submodules, then build the firmware application from the repository
