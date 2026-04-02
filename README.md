@@ -1,96 +1,90 @@
 # PicoMSO
 
-**RP2040-based Mixed-Signal Oscilloscope (MSO)**  
-An incremental unification of the imported logic analyzer and oscilloscope firmware for a future mixed-signal RP2040 project.
+PicoMSO is an RP2040-based mixed-signal instrument that combines logic-analyzer
+and oscilloscope functionality in a single firmware and host integration stack.
 
-> **Current status:** The working firmware still lives in `logic_analyzer_rp2040/` and `oscilloscope_rp2040/`.
-> The new `firmware/` directory is scaffolding only for future shared modules and does not replace the existing build entry points yet.
+## Specifications
 
----
+### Logic analyzer
 
-## Overview
+- **Channels:** 16 digital channels
+- **Maximum sample rate:** up to **200 MHz**
+- **Capture depth:** up to **50 ksamples**
+- **Pre-trigger buffer:** up to **4 ksample**
+- **Trigger support:** level and edge triggers
 
-PicoMSO currently starts from two existing firmware codebases that remain buildable and reviewable in their original locations:
+### Oscilloscope
 
-- `logic_analyzer_rp2040/` - imported 16-channel logic analyzer firmware
-- `oscilloscope_rp2040/` - imported oscilloscope firmware
+- **Channels:** 1 analog channel
+- **Maximum sample rate:** up to **2 MS/s**
 
-The repository is being evolved toward a shared mixed-signal architecture, but the transition is intentionally incremental. Existing source trees stay in place until shared code boundaries are clear enough to extract safely.
+## PulseView example
 
----
+The screenshot below shows PicoMSO running in PulseView with digital and analog
+data displayed in the same session.
 
-## Current Repository State
+![PicoMSO PulseView example](docs/images/picomso-pulseview.png)
 
-The repository currently contains:
+## libsigrok command-line examples
 
-- the original imported firmware trees at the top level
-- a new `firmware/` area reserved for shared code and future mixed-signal support
-- a `docs/` area for transition planning and build guidance
+Show PicoMSO device information:
 
-The current firmware build entry points are unchanged:
-
-- `logic_analyzer_rp2040/src/CMakeLists.txt`
-- `oscilloscope_rp2040/src/CMakeLists.txt`
-
----
-
-## Transitional Repository Structure
-
-```text
-PicoMSO/
-├── README.md
-├── docs/
-│   ├── building.md
-│   └── repository-transition.md
-├── firmware/
-│   ├── CMakeLists.txt
-│   ├── README.md
-│   ├── common/
-│   │   ├── CMakeLists.txt
-│   │   └── README.md
-│   ├── mixed_signal/
-│   │   ├── CMakeLists.txt
-│   │   └── README.md
-│   └── protocol/
-│       ├── CMakeLists.txt
-│       └── README.md
-├── logic_analyzer_rp2040/
-└── oscilloscope_rp2040/
+```bash
+sigrok-cli -d picomso --show
 ```
 
-This structure keeps the imported projects intact while creating clearly named destinations for future shared code.
+Capture logic data from channel `D0`:
 
----
+```bash
+sigrok-cli -d picomso --channels D0 --samples 1000 --config samplerate=5k
+```
 
-## Shared Components Identified So Far
+Capture mixed-signal data from logic channel `D0` and analog channel `A0`:
 
-The two imported firmware trees already show a few common patterns that are good candidates for future extraction:
+```bash
+sigrok-cli -d picomso --channels D0,A0 --samples 1000 --config samplerate=5k
+```
 
-- debug logging support in each project's `common.c` / `common.h`
-- boot-time GPIO configuration patterns
-- status LED behaviour during startup and capture
-- RP2040/Pico SDK based CMake build flow
+## Build
 
-Other areas are similar in purpose but not yet safe to merge without deeper refactoring:
+Initialize submodules, then build the firmware application from the repository
+root:
 
-- protocol handling (`protocol_sump.c` vs `protocol.c`)
-- capture backends (`capture.c` vs `oscilloscope.c`)
-- transport layers (UART vs USB)
+```bash
+git submodule update --init --recursive
+cmake -S firmware/app -B build/picomso
+cmake --build build/picomso
+```
 
-For now, those areas remain in place and are documented rather than moved.
+Additional documentation:
 
----
+- [`docs/building.md`](docs/building.md)
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/protocol.md`](docs/protocol.md)
 
-## Migration Principles
+## Sample-rate limits
 
-- Keep existing folders and build scripts working during the transition
-- Prefer wrappers, adapters, and documentation before moving source files
-- Extract shared code only when include and dependency impact is clear
-- Make small, reviewable changes instead of large repository reshuffles
+When any analog channel is enabled, the maximum supported samplerate is
+**2 MS/s**. Requests above this limit are rejected by the driver with an
+argument error.
 
----
+Logic-only captures can still use higher samplerates, up to **200 MHz**.
 
-## Next Documentation
+## libsigrok support
 
-- Transition plan: [`docs/repository-transition.md`](docs/repository-transition.md)
-- Build guidance: [`docs/building.md`](docs/building.md)
+Until PicoMSO support is merged upstream, users need to build and install the
+temporary PicoMSO `libsigrok` fork manually. Please follow the official sigrok
+build instructions and apply them to the PicoMSO fork repository:
+`https://github.com/dgatf/libsigrok`.
+
+The sigrok documentation covers the required dependencies, general build flow,
+and platform-specific notes for building from source.
+
+## Signal integrity note
+
+During validation, adding a series resistor of about **600 Ω** on the logic input helped suppress glitches and made trigger detection stable. If you observe spurious transitions or unreliable triggering, a small series resistor and, if needed, a simple RC filter may improve signal integrity.
+
+## Status
+
+PicoMSO is functional, with final validation, cleanup, and documentation polish
+still in progress.

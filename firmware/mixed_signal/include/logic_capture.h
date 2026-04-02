@@ -28,17 +28,26 @@ extern "C" {
 
 #include "types.h"
 
-#define LOGIC_CAPTURE_BLOCK_BYTES  64u
-#define LOGIC_CAPTURE_MAX_SAMPLES  100000u
+#define LOGIC_CAPTURE_BLOCK_BYTES 64u
+#define LOGIC_CAPTURE_MAX_SAMPLES 100000u
 
-typedef void (*complete_handler_t)(void);
+typedef struct logic_capture_activation_t {
+    // Precomputed direct-write masks for the final logic activation point.
+    // Mixed mode uses these to write pio0->ctrl / pio1->ctrl in the intended
+    // order once all DMA and PIO state machines are already armed.
+    uint32_t pio0_enable_mask;
+    uint32_t pio1_enable_mask;
+} logic_capture_activation_t;
 
 void logic_capture_reset(void);
+bool logic_capture_prepare(const capture_config_t *config, complete_handler_t handler,
+                           capture_trigger_gate_t *trigger_gate, logic_capture_activation_t *activation);
+bool logic_capture_arm(void);
+void logic_capture_activate(const logic_capture_activation_t *activation);
+void logic_capture_mark_capturing(void);
 bool logic_capture_start(const capture_config_t *config, complete_handler_t handler);
 capture_state_t logic_capture_get_state(void);
 bool logic_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len);
-uint logic_capture_get_sm_mux(void);
-uint logic_capture_get_trigger_count(void);
 
 #ifdef __cplusplus
 }

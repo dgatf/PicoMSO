@@ -1,62 +1,43 @@
 # firmware/common
 
-Shared low-level firmware utilities for both `logic_analyzer_rp2040` and
-`oscilloscope_rp2040`.
+Shared PicoMSO runtime utilities.
 
 ## Contents
 
 ### `include/debug.h` + `src/debug.c`
 
-UART-based debug logging helpers, identical across both projects.  Both projects
-previously contained near-duplicate `common.c` implementations; this is the
-single authoritative copy.
-
-- `debug_init(baudrate, buffer, is_enabled)` – initialise UART0 when debug is on
-- `debug_reinit()` – re-initialise after a clock-rate change
-- `debug(fmt, ...)` – non-blocking formatted output
-- `debug_block(fmt, ...)` – formatted output with TX-drain wait
-- `debug_is_enabled()` – query current debug state
-
-Shared modules that use these helpers now follow grep-friendly prefixes such as
-`[protocol]`, `[logic]`, `[scope]`, and `[capture_ctrl]` so capture flow and
-state transitions can be correlated across modules.
-
-Pin assignments (both projects):
-
-| Constant             | GPIO | Purpose               |
-|----------------------|------|-----------------------|
-| `DEBUG_UART_TX_GPIO` | 16   | UART0 TX output       |
-| `DEBUG_UART_RX_GPIO` | 17   | UART0 RX (reserved)   |
-| `DEBUG_ENABLE_GPIO`  | 18   | Active-low enable pin |
+UART-based debug logging helpers used by the current firmware stack.
 
 ### `include/types.h`
 
-Shared type definitions:
+Shared type definitions, including:
 
-- `capture_state_t` – `CAPTURE_IDLE` / `CAPTURE_RUNNING`
-- `trigger_match_t` – level/edge trigger kinds
-- `trigger_t` – single-channel trigger configuration
-- `capture_config_t` – logic-analyzer capture parameters
+- `capture_state_t`
+- `trigger_match_t`
+- `trigger_t`
+- `capture_config_t`
 
 ### `include/capture_controller.h` + `src/capture_controller.c`
 
-Shared stream/state controller used by the protocol layer.
+Shared controller state used by the protocol layer.
 
-- tracks the active stream bitmask and capture state
-- logs stream changes and state transitions with the `[capture_ctrl]` prefix
+`capture_controller_t` tracks:
 
-## CMake Usage
+- `streams_enabled`
+- `state`
 
-Each project adds this directory as a subdirectory and links against
-`picomso_common`:
+Supported stream bits:
 
-```cmake
-add_subdirectory(../../firmware/common ${CMAKE_BINARY_DIR}/picomso_common)
-target_link_libraries(my_target picomso_common)
-```
+- `PICOMSO_STREAM_NONE`
+- `PICOMSO_STREAM_LOGIC`
+- `PICOMSO_STREAM_SCOPE`
 
-## What Belongs Here
+## CMake usage
 
-Extract code here only when it is **clearly identical or near-identical** across
-both projects and carries no device-specific behaviour. See
-`docs/architecture.md` for details on what remains project-specific and why.
+`firmware/app/CMakeLists.txt` adds this directory and links the resulting
+`picomso_common` library into the current firmware build.
+
+## Scope
+
+Place code here only when it is shared by the current PicoMSO firmware path and
+does not belong to a transport-specific or capture-backend-specific module.

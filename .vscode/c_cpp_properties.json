@@ -1,0 +1,13 @@
+{
+    "configurations": [
+        {
+            "name": "Default",
+            "configurationProvider": "ms-vscode.cmake-tools",
+            "intelliSenseMode": "gcc-arm",
+            "compilerPath": "/usr/bin/arm-none-eabi-gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17"
+        }
+    ],
+    "version": 4
+}

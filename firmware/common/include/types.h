@@ -58,6 +58,14 @@ typedef struct capture_config_t {
     trigger_t trigger[4];
 } capture_config_t;
 
+typedef struct capture_trigger_gate_t {
+    // When enabled, mixed scope startup waits on an external trigger gate rather
+    // than starting its post-trigger path immediately. dreq is the fully
+    // prepared hardware DREQ source that signals that gate.
+    bool enabled;
+    uint dreq;
+} capture_trigger_gate_t;
+
 typedef enum coupling_t { COUPLING_DC, COUPLING_AC } coupling_t;
 typedef enum channel_t { CHANNEL1, CHANNEL2 } channel_t;
 typedef enum gpio_config_t { GPIO_DEBUG_ENABLE = 18, GPIO_NO_CONVERSION = 19 } gpio_config_t;

@@ -28,11 +28,17 @@ extern "C" {
 
 #include "types.h"
 
-#define SCOPE_CAPTURE_BLOCK_BYTES  64u
-#define SCOPE_CAPTURE_MAX_SAMPLES  16384u
+#define SCOPE_CAPTURE_BLOCK_BYTES 64u
+#define SCOPE_CAPTURE_MAX_SAMPLES 50000u
+#define SCOPE_CAPTURE_PRE_TRIGGER_MAX_SAMPLES 4096u
 
 void scope_capture_reset(void);
 bool scope_capture_start(const capture_config_t *config, complete_handler_t handler);
+bool scope_capture_prepare(const capture_config_t *config, complete_handler_t handler,
+                           const capture_trigger_gate_t *trigger_gate);
+bool scope_capture_arm(void);
+void scope_capture_activate(void);
+void scope_capture_mark_capturing(void);
 capture_state_t scope_capture_get_state(void);
 bool scope_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len);
 void oscilloscope_set_coupling(channel_t channel, coupling_t coupling);

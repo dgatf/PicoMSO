@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include "capture.pio.h"
+#include "capture_controller.h"
 #include "debug.h"
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
@@ -28,68 +29,101 @@
 #include "hardware/irq.h"
 #include "pico/stdlib.h"
 
-#define LOGIC_CAPTURE_CHANNELS 16u
+#define LOGIC_CAPTURE_CHANNEL_COUNT 16u
 #define LOGIC_CAPTURE_TRIGGER_TIMEOUT_SPINS 4096u
 
-#define PRE_TRIGGER_RING_BITS 10
-#define PRE_TRIGGER_BUFFER_SIZE (1 << PRE_TRIGGER_RING_BITS)
-#define PRE_TRIGGER_RING_TRANSFER_COUNT ((0xffffffffu / PRE_TRIGGER_BUFFER_SIZE) * PRE_TRIGGER_BUFFER_SIZE)
-#define POST_TRIGGER_BUFFER_SIZE 10000
-#define MAX_TRIGGER_COUNT 2
-#define RATE_CHANGE_CLK 5000
+#define LOGIC_PRE_TRIGGER_RING_BITS 12
+#define LOGIC_PRE_TRIGGER_BUFFER_SIZE (1u << LOGIC_PRE_TRIGGER_RING_BITS)
+#define LOGIC_POST_TRIGGER_BUFFER_SIZE 50000u
+#define LOGIC_PRE_TRIGGER_RING_TRANSFER_COUNT \
+    ((0xffffffffu / LOGIC_PRE_TRIGGER_BUFFER_SIZE) * LOGIC_PRE_TRIGGER_BUFFER_SIZE)
+
+#define LOGIC_CAPTURE_MAX_TRIGGER_COUNT 2u
+#define LOGIC_CAPTURE_RATE_CHANGE_CLK_HZ 500000u
 
 typedef enum logic_capture_phase_t {
     LOGIC_CAPTURE_PHASE_DISARMED = 0,
+    LOGIC_CAPTURE_PHASE_ARMED,
     LOGIC_CAPTURE_PHASE_CAPTURING,
     LOGIC_CAPTURE_PHASE_ABORTING,
     LOGIC_CAPTURE_PHASE_FINALIZED
 } logic_capture_phase_t;
 
-static capture_config_t s_logic_capture_config = {.total_samples = 0u,
-                                                  .rate = 0u,
-                                                  .pre_trigger_samples = 0u,
-                                                  .channels = LOGIC_CAPTURE_CHANNELS,
-                                                  .trigger = {
-                                                      {.is_enabled = true, .pin = 0u, .match = TRIGGER_TYPE_EDGE_HIGH},
-                                                      {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
-                                                      {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
-                                                      {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
-                                                  }};
+static capture_config_t s_logic_capture_config = {
+    .total_samples = 0u,
+    .rate = 0u,
+    .pre_trigger_samples = 0u,
+    .channels = LOGIC_CAPTURE_CHANNEL_COUNT,
+    .trigger = {
+        {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
+        {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
+        {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
+        {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
+    },
+};
 
 static volatile logic_capture_phase_t s_phase = LOGIC_CAPTURE_PHASE_DISARMED;
 static uint32_t s_capture_read_offset_bytes = 0u;
+static bool s_activation_armed = false;
 
-static const uint sm_pre_trigger_ = 0, sm_post_trigger_ = 1, sm_mux_ = 3, dma_channel_pre_trigger_ = 0,
-                  dma_channel_post_trigger_ = 1, dma_channel_pio0_ctrl_ = 2, dma_channel_pio1_ctrl_ = 3,
-                  dma_channel_reload_pre_trigger_counter_ = 4, dma_channel_trigger_[MAX_TRIGGER_COUNT] = {5, 6},
-                  sm_trigger_[MAX_TRIGGER_COUNT] = {0, 1}, reload_counter_ = PRE_TRIGGER_RING_TRANSFER_COUNT;
-static uint offset_pre_trigger_, offset_post_trigger_, pre_trigger_samples_, post_trigger_samples_,
-    pin_count_ = LOGIC_CAPTURE_CHANNELS, trigger_count_, sm_trigger_mask_, trigger_mask_, pin_base_, rate_, offset_mux_,
-    offset_trigger_[MAX_TRIGGER_COUNT];
-static volatile uint pre_trigger_count_;
-static volatile int pre_trigger_first_, triggered_channel_;
-static float clk_div_;
-static volatile uint pio0_ctrl_ = (1 << sm_post_trigger_), pio1_ctrl_ = 0;
-static uint16_t pre_trigger_buffer_[PRE_TRIGGER_BUFFER_SIZE]
-    __attribute__((aligned(PRE_TRIGGER_BUFFER_SIZE * sizeof(uint16_t)))),
-    post_trigger_buffer_[POST_TRIGGER_BUFFER_SIZE];
-static pio_sm_config pio_config_trigger_[MAX_TRIGGER_COUNT], pio_config_pre_trigger_, pio_config_post_trigger_,
-    pio_config_mux_;
-static const uint triggered_channel_index_[MAX_TRIGGER_COUNT] = {0, 1};
+static const uint s_sm_pre_trigger = 0u;
+static const uint s_sm_post_trigger = 1u;
+static const uint s_sm_mux = 3u;
 
-static void (*handler_)(void) = NULL;
+static const uint s_dma_pre_trigger_capture = 0u;
+static const uint s_dma_post_trigger_capture = 1u;
+static const uint s_dma_arm_post_trigger = 2u;
+static const uint s_dma_stop_trigger_path = 3u;
+static const uint s_dma_pre_trigger_reload = 4u;
+static const uint s_dma_trigger_to_mux[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {5u, 6u};
 
-static void configure_inputs(void);
-static inline void trigger_handler(void);
-static inline bool set_trigger(trigger_t trigger);
-static inline void capture_complete_handler(void);
-static inline void capture_stop(void);
+static const uint s_sm_trigger[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {0u, 1u};
+static const uint s_triggered_channel_index[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {0u, 1u};
+static const uint s_reload_counter = LOGIC_PRE_TRIGGER_RING_TRANSFER_COUNT;
 
-static const char *logic_capture_phase_name(logic_capture_phase_t phase)
-{
+static uint s_offset_pre_trigger;
+static uint s_offset_post_trigger;
+static uint s_pre_trigger_samples;
+static uint s_post_trigger_samples;
+static uint s_pin_count = LOGIC_CAPTURE_CHANNEL_COUNT;
+static uint s_trigger_count;
+static uint s_sm_trigger_mask;
+static uint s_pin_base;
+static uint s_rate;
+static uint s_offset_mux;
+static uint s_offset_trigger[LOGIC_CAPTURE_MAX_TRIGGER_COUNT];
+
+static volatile uint s_pre_trigger_count;
+static volatile int s_pre_trigger_first;
+static volatile int s_triggered_channel;
+
+static float s_clk_div;
+static volatile uint s_pio0_ctrl = (1u << 1u);
+static volatile uint s_pio1_ctrl = 0u;
+
+static uint16_t s_pre_trigger_buffer[LOGIC_PRE_TRIGGER_BUFFER_SIZE]
+    __attribute__((aligned(LOGIC_PRE_TRIGGER_BUFFER_SIZE * sizeof(uint16_t))));
+static uint16_t s_post_trigger_buffer[LOGIC_POST_TRIGGER_BUFFER_SIZE];
+
+static pio_sm_config s_pio_config_trigger[LOGIC_CAPTURE_MAX_TRIGGER_COUNT];
+static pio_sm_config s_pio_config_pre_trigger;
+static pio_sm_config s_pio_config_post_trigger;
+static pio_sm_config s_pio_config_mux;
+
+static void (*s_complete_handler)(void) = NULL;
+
+static void logic_capture_configure_inputs(void);
+static inline void logic_capture_trigger_handler(void);
+static inline bool logic_capture_configure_trigger(trigger_t trigger);
+static inline void logic_capture_complete_handler(void);
+static inline void logic_capture_stop_hardware(void);
+
+static const char *logic_capture_phase_name(logic_capture_phase_t phase) {
     switch (phase) {
         case LOGIC_CAPTURE_PHASE_DISARMED:
             return "DISARMED";
+        case LOGIC_CAPTURE_PHASE_ARMED:
+            return "ARMED";
         case LOGIC_CAPTURE_PHASE_CAPTURING:
             return "CAPTURING";
         case LOGIC_CAPTURE_PHASE_ABORTING:
@@ -103,265 +137,331 @@ static const char *logic_capture_phase_name(logic_capture_phase_t phase)
 
 void logic_capture_reset(void) {
     debug("\n[logic] reset begin phase=%s total_samples=%lu read_offset=%lu",
-          logic_capture_phase_name(s_phase),
-          (unsigned long)s_logic_capture_config.total_samples,
+          logic_capture_phase_name(s_phase), (unsigned long)s_logic_capture_config.total_samples,
           (unsigned long)s_capture_read_offset_bytes);
-    if (clock_get_hz(clk_sys) != 100000000) {
-        set_sys_clock_khz(100000, true);
+
+    if (clock_get_hz(clk_sys) != 100000000u) {
+        set_sys_clock_khz(100000u, true);
         debug_reinit();
     }
+
     if (s_phase == LOGIC_CAPTURE_PHASE_CAPTURING) {
         s_phase = LOGIC_CAPTURE_PHASE_ABORTING;
-        capture_stop();
+        logic_capture_stop_hardware();
     }
+
     s_logic_capture_config.total_samples = 0u;
     s_logic_capture_config.rate = 0u;
     s_logic_capture_config.pre_trigger_samples = 0u;
+
     s_capture_read_offset_bytes = 0u;
-    pre_trigger_samples_ = 0u;
-    post_trigger_samples_ = 0u;
-    pre_trigger_count_ = 0u;
-    pre_trigger_first_ = 0;
-    trigger_count_ = 0u;
-    sm_trigger_mask_ = 0u;
-    triggered_channel_ = -1;
+    s_pre_trigger_samples = 0u;
+    s_post_trigger_samples = 0u;
+    s_pre_trigger_count = 0u;
+    s_pre_trigger_first = 0;
+    s_trigger_count = 0u;
+    s_sm_trigger_mask = 0u;
+    s_triggered_channel = -1;
+    s_activation_armed = false;
     s_phase = LOGIC_CAPTURE_PHASE_DISARMED;
+
     debug("\n[logic] reset done phase=%s", logic_capture_phase_name(s_phase));
 }
 
-bool logic_capture_start(const capture_config_t *config, complete_handler_t handler) {
-    if (config == NULL || handler == NULL) {
-        debug("\n[logic] start rejected reason=bad_args config=%u handler=%u",
-              config != NULL, handler != NULL);
+bool logic_capture_prepare(const capture_config_t *config, complete_handler_t handler,
+                           capture_trigger_gate_t *trigger_gate, logic_capture_activation_t *activation) {
+    if (config == NULL || handler == NULL || trigger_gate == NULL || activation == NULL) {
+        debug("\n[logic] prepare rejected reason=bad_args config=%u handler=%u gate=%u activation=%u",
+              config != NULL, handler != NULL, trigger_gate != NULL, activation != NULL);
         return false;
     }
-    handler_ = handler;
+
+    if (s_phase != LOGIC_CAPTURE_PHASE_DISARMED && s_phase != LOGIC_CAPTURE_PHASE_FINALIZED) {
+        debug("\n[logic] prepare rejected reason=busy phase=%s", logic_capture_phase_name(s_phase));
+        return false;
+    }
+
+    s_complete_handler = handler;
     s_logic_capture_config = *config;
-    s_logic_capture_config.channels = LOGIC_CAPTURE_CHANNELS;
+    s_logic_capture_config.channels = LOGIC_CAPTURE_CHANNEL_COUNT;
     s_capture_read_offset_bytes = 0u;
-    pin_base_ = 0;
-    uint32_t samples = config->total_samples;
-    uint32_t rate = config->rate;
-    uint32_t pre_trigger_samples = config->pre_trigger_samples;
+    s_pin_base = 0u;
 
-    debug("\n[logic] start request phase=%s samples=%lu rate=%lu pre=%lu",
-          logic_capture_phase_name(s_phase),
-          (unsigned long)samples,
-          (unsigned long)rate,
-          (unsigned long)pre_trigger_samples);
+    {
+        const uint32_t samples = config->total_samples;
+        const uint32_t rate = config->rate;
+        const uint32_t pre_trigger_samples = config->pre_trigger_samples;
 
-    if (samples == 0) {
-        debug("\n[logic] start rejected reason=zero_samples");
-        return false;
-    }
-    if (pre_trigger_samples > samples) {
-        debug("\n[logic] start rejected reason=pre_gt_total pre=%lu samples=%lu",
-              (unsigned long)pre_trigger_samples, (unsigned long)samples);
-        return false;
-    }
-    if (pre_trigger_samples > PRE_TRIGGER_BUFFER_SIZE) {
-        debug("\n[logic] start rejected reason=pre_buffer_overflow pre=%lu max=%u",
-              (unsigned long)pre_trigger_samples, PRE_TRIGGER_BUFFER_SIZE);
-        return false;
-    }
-    if ((samples - pre_trigger_samples) > POST_TRIGGER_BUFFER_SIZE) {
-        debug("\n[logic] start rejected reason=post_buffer_overflow post=%lu max=%u",
-              (unsigned long)(samples - pre_trigger_samples), POST_TRIGGER_BUFFER_SIZE);
-        return false;
-    }
-    if (rate == 0) {
-        debug("\n[logic] start rejected reason=zero_rate");
-        return false;
-    }  // if rate must be valid
-    configure_inputs();
+        debug("\n[logic] prepare request phase=%s samples=%lu rate=%lu pre=%lu",
+              logic_capture_phase_name(s_phase), (unsigned long)samples, (unsigned long)rate,
+              (unsigned long)pre_trigger_samples);
 
-    s_phase = LOGIC_CAPTURE_PHASE_CAPTURING;
-    pre_trigger_samples_ = pre_trigger_samples;
-    post_trigger_samples_ = samples - pre_trigger_samples;
-    rate_ = rate;
+        if (samples == 0u) {
+            debug("\n[logic] prepare rejected reason=zero_samples");
+            return false;
+        }
 
-    // Set sys clock
-    if (rate > RATE_CHANGE_CLK) {
-        if (clock_get_hz(clk_sys) != 200000000) {
-            set_sys_clock_khz(200000, true);
+        if (pre_trigger_samples > samples) {
+            debug("\n[logic] prepare rejected reason=pre_gt_total pre=%lu samples=%lu",
+                  (unsigned long)pre_trigger_samples, (unsigned long)samples);
+            return false;
+        }
+
+        if (pre_trigger_samples > LOGIC_PRE_TRIGGER_BUFFER_SIZE) {
+            debug("\n[logic] prepare rejected reason=pre_buffer_overflow pre=%lu max=%u",
+                  (unsigned long)pre_trigger_samples, LOGIC_PRE_TRIGGER_BUFFER_SIZE);
+            return false;
+        }
+
+        if ((samples - pre_trigger_samples) > LOGIC_POST_TRIGGER_BUFFER_SIZE) {
+            debug("\n[logic] prepare rejected reason=post_buffer_overflow post=%lu max=%u",
+                  (unsigned long)(samples - pre_trigger_samples), LOGIC_POST_TRIGGER_BUFFER_SIZE);
+            return false;
+        }
+
+        if (rate == 0u) {
+            debug("\n[logic] prepare rejected reason=zero_rate");
+            return false;
+        }
+    }
+
+    logic_capture_configure_inputs();
+
+    s_pre_trigger_samples = config->pre_trigger_samples;
+    s_post_trigger_samples = config->total_samples - config->pre_trigger_samples;
+    s_rate = config->rate;
+    s_pre_trigger_count = 0u;
+    s_pre_trigger_first = 0;
+    s_trigger_count = 0u;
+    s_sm_trigger_mask = 0u;
+    s_triggered_channel = -1;
+    s_activation_armed = false;
+
+    if (s_rate > LOGIC_CAPTURE_RATE_CHANGE_CLK_HZ) {
+        if (clock_get_hz(clk_sys) != 200000000u) {
+            set_sys_clock_khz(200000u, true);
             debug_reinit();
         }
-        clk_div_ = (float)clock_get_hz(clk_sys) / rate;
-    } else {
-        if (clock_get_hz(clk_sys) != 100000000) {
-            set_sys_clock_khz(100000, true);
-            debug_reinit();
-        }
-        clk_div_ = (float)clock_get_hz(clk_sys) / rate / 32 / 10;
+    } else if (clock_get_hz(clk_sys) != 100000000u) {
+        set_sys_clock_khz(100000u, true);
+        debug_reinit();
     }
-    if (clk_div_ > 0xffff) clk_div_ = 0xffff;
 
-    debug_block("\n[logic] start clocks sys_clk=%u clk_mode=%s clk_div=%f",
-                clock_get_hz(clk_sys), rate > RATE_CHANGE_CLK ? "fast" : "slow", clk_div_);
+    s_clk_div = (float)clock_get_hz(clk_sys) / (float)s_rate;
+    if (s_clk_div > 65535.0f) {
+        s_clk_div = 65535.0f;
+    }
 
-    // DMA channel pio0 control: disable pre trigger and enable post trigger
-    dma_channel_config config_dma_channel_pio0_ctrl = dma_channel_get_default_config(dma_channel_pio0_ctrl_);
-    channel_config_set_transfer_data_size(&config_dma_channel_pio0_ctrl, DMA_SIZE_32);
-    channel_config_set_write_increment(&config_dma_channel_pio0_ctrl, false);
-    channel_config_set_read_increment(&config_dma_channel_pio0_ctrl, false);
-    channel_config_set_dreq(&config_dma_channel_pio0_ctrl, pio_get_dreq(pio0, sm_mux_, false));
-    channel_config_set_chain_to(&config_dma_channel_pio0_ctrl, dma_channel_pio1_ctrl_);
-    dma_channel_configure(dma_channel_pio0_ctrl_, &config_dma_channel_pio0_ctrl,
-                          &pio0->ctrl,  // write address
-                          &pio0_ctrl_,  // read address
-                          1, false);
+    debug_block("\n[logic] prepare clocks sys_clk=%u clk_div=%f", clock_get_hz(clk_sys), s_clk_div);
 
-    // DMA channel pio1 control: disable mux and triggers
-    dma_channel_config config_dma_channel_pio1_ctrl = dma_channel_get_default_config(dma_channel_pio1_ctrl_);
-    channel_config_set_transfer_data_size(&config_dma_channel_pio1_ctrl, DMA_SIZE_32);
-    channel_config_set_write_increment(&config_dma_channel_pio1_ctrl, false);
-    channel_config_set_read_increment(&config_dma_channel_pio1_ctrl, false);
-    dma_channel_configure(dma_channel_pio1_ctrl_, &config_dma_channel_pio1_ctrl,
-                          &pio1->ctrl,  // write address
-                          &pio1_ctrl_,  // read address
-                          1, false);
+    {
+        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_arm_post_trigger);
+        channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+        channel_config_set_write_increment(&dma_cfg, false);
+        channel_config_set_read_increment(&dma_cfg, false);
+        channel_config_set_dreq(&dma_cfg, pio_get_dreq(pio0, s_sm_mux, false));
+        channel_config_set_chain_to(&dma_cfg, s_dma_stop_trigger_path);
+        dma_channel_configure(s_dma_arm_post_trigger, &dma_cfg, &pio0->ctrl, &s_pio0_ctrl, 1u, false);
+    }
 
-    dma_channel_start(dma_channel_pio0_ctrl_);
+    {
+        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_stop_trigger_path);
+        channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+        channel_config_set_write_increment(&dma_cfg, false);
+        channel_config_set_read_increment(&dma_cfg, false);
+        dma_channel_configure(s_dma_stop_trigger_path, &dma_cfg, &pio1->ctrl, &s_pio1_ctrl, 1u, false);
+    }
 
-    // DMA channel pre trigger reload counter
-    dma_channel_config config_dma_channel_reload_pre_trigger_counter =
-        dma_channel_get_default_config(dma_channel_reload_pre_trigger_counter_);
-    channel_config_set_transfer_data_size(&config_dma_channel_reload_pre_trigger_counter, DMA_SIZE_32);
-    channel_config_set_write_increment(&config_dma_channel_reload_pre_trigger_counter, false);
-    channel_config_set_read_increment(&config_dma_channel_reload_pre_trigger_counter, false);
-    dma_channel_configure(dma_channel_reload_pre_trigger_counter_, &config_dma_channel_reload_pre_trigger_counter,
-                          &dma_hw->ch[dma_channel_pre_trigger_].al1_transfer_count_trig,  // write address
-                          &reload_counter_,                                               // read address
-                          1, false);
+    {
+        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_pre_trigger_reload);
+        channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+        channel_config_set_write_increment(&dma_cfg, false);
+        channel_config_set_read_increment(&dma_cfg, false);
+        dma_channel_configure(s_dma_pre_trigger_reload, &dma_cfg,
+                              &dma_hw->ch[s_dma_pre_trigger_capture].al1_transfer_count_trig, &s_reload_counter, 1u,
+                              false);
+    }
 
-    // PIO mux
-    offset_mux_ = pio_add_program(pio0, &mux_program);
-    pio_config_mux_ = mux_program_get_default_config(offset_mux_);
-    sm_config_set_clkdiv(&pio_config_mux_, 1);
-    pio_set_irq0_source_enabled(pio0, (enum pio_interrupt_source)(pis_interrupt0), true);
-    pio_sm_init(pio0, sm_mux_, offset_mux_, &pio_config_mux_);
-    irq_set_exclusive_handler(PIO0_IRQ_0, trigger_handler);
+    s_offset_mux = pio_add_program(pio0, &mux_program);
+    s_pio_config_mux = mux_program_get_default_config(s_offset_mux);
+    sm_config_set_clkdiv(&s_pio_config_mux, 1.0f);
+    pio_set_irq0_source_enabled(pio0, (enum pio_interrupt_source)pis_interrupt0, true);
+    pio_sm_init(pio0, s_sm_mux, s_offset_mux, &s_pio_config_mux);
+    irq_set_exclusive_handler(PIO0_IRQ_0, logic_capture_trigger_handler);
     irq_set_enabled(PIO0_IRQ_0, true);
 
-    // Init pre trigger
-    if (rate > RATE_CHANGE_CLK) {
-        offset_pre_trigger_ = pio_add_program(pio0, &capture_program);
-        pio_config_pre_trigger_ = capture_program_get_default_config(offset_pre_trigger_);
-    } else {
-        offset_pre_trigger_ = pio_add_program(pio0, &capture_slow_program);
-        pio_config_pre_trigger_ = capture_slow_program_get_default_config(offset_pre_trigger_);
-    }
-    sm_config_set_in_pins(&pio_config_pre_trigger_, pin_base_);
-    sm_config_set_in_shift(&pio_config_pre_trigger_, false, true, pin_count_);
-    sm_config_set_clkdiv(&pio_config_pre_trigger_, clk_div_);
-    pio_sm_init(pio0, sm_pre_trigger_, offset_pre_trigger_, &pio_config_pre_trigger_);
-    if (rate > RATE_CHANGE_CLK)
-        pio0->instr_mem[offset_pre_trigger_] = pio_encode_in(pio_pins, pin_count_);
-    else
-        pio0->instr_mem[offset_pre_trigger_] = pio_encode_in(pio_pins, pin_count_) | pio_encode_delay(31);
-    dma_channel_config channel_config_pre_trigger = dma_channel_get_default_config(dma_channel_pre_trigger_);
-    channel_config_set_transfer_data_size(&channel_config_pre_trigger, DMA_SIZE_16);
-    channel_config_set_ring(&channel_config_pre_trigger, true, PRE_TRIGGER_RING_BITS + 1);
-    channel_config_set_write_increment(&channel_config_pre_trigger, true);
-    channel_config_set_read_increment(&channel_config_pre_trigger, false);
-    channel_config_set_dreq(&channel_config_pre_trigger, pio_get_dreq(pio0, sm_pre_trigger_, false));
-    channel_config_set_chain_to(&channel_config_pre_trigger, dma_channel_reload_pre_trigger_counter_);
-    dma_channel_configure(dma_channel_pre_trigger_, &channel_config_pre_trigger,
-                          &pre_trigger_buffer_,         // write address
-                          &pio0->rxf[sm_pre_trigger_],  // read address
-                          PRE_TRIGGER_RING_TRANSFER_COUNT, true);
+    s_offset_pre_trigger = pio_add_program(pio0, &capture_program);
+    s_pio_config_pre_trigger = capture_program_get_default_config(s_offset_pre_trigger);
+    sm_config_set_in_pins(&s_pio_config_pre_trigger, s_pin_base);
+    sm_config_set_in_shift(&s_pio_config_pre_trigger, false, true, s_pin_count);
+    sm_config_set_clkdiv(&s_pio_config_pre_trigger, s_clk_div);
+    pio_sm_init(pio0, s_sm_pre_trigger, s_offset_pre_trigger, &s_pio_config_pre_trigger);
+    pio0->instr_mem[s_offset_pre_trigger] = pio_encode_in(pio_pins, s_pin_count);
 
-    // Init post trigger
-    if (rate > RATE_CHANGE_CLK) {
-        offset_post_trigger_ = pio_add_program(pio0, &capture_program);
-        pio_config_post_trigger_ = capture_program_get_default_config(offset_post_trigger_);
-    } else {
-        offset_post_trigger_ = pio_add_program(pio0, &capture_slow_program);
-        pio_config_post_trigger_ = capture_slow_program_get_default_config(offset_post_trigger_);
-    }
-    sm_config_set_in_pins(&pio_config_post_trigger_, pin_base_);
-    sm_config_set_in_shift(&pio_config_post_trigger_, false, true, pin_count_);
-    sm_config_set_clkdiv(&pio_config_post_trigger_, clk_div_);
-    pio_sm_init(pio0, sm_post_trigger_, offset_post_trigger_, &pio_config_post_trigger_);
-    if (rate > RATE_CHANGE_CLK)
-        pio0->instr_mem[offset_post_trigger_] = pio_encode_in(pio_pins, pin_count_);
-    else
-        pio0->instr_mem[offset_post_trigger_] = pio_encode_in(pio_pins, pin_count_) | pio_encode_delay(31);
-    dma_channel_config channel_config_post_trigger = dma_channel_get_default_config(dma_channel_post_trigger_);
-    channel_config_set_transfer_data_size(&channel_config_post_trigger, DMA_SIZE_16);
-    channel_config_set_write_increment(&channel_config_post_trigger, true);
-    channel_config_set_read_increment(&channel_config_post_trigger, false);
-    channel_config_set_dreq(&channel_config_post_trigger, pio_get_dreq(pio0, sm_post_trigger_, false));
-    dma_channel_set_irq0_enabled(dma_channel_post_trigger_, true);  // raise an interrupt when completed
-    irq_set_exclusive_handler(DMA_IRQ_0, capture_complete_handler);
-    irq_set_enabled(DMA_IRQ_0, true);
-    dma_channel_configure(dma_channel_post_trigger_, &channel_config_post_trigger,
-                          &post_trigger_buffer_,         // write address
-                          &pio0->rxf[sm_post_trigger_],  // read address
-                          post_trigger_samples_, true);
+    {
+        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_pre_trigger_capture);
+        channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_16);
+        channel_config_set_ring(&dma_cfg, true, LOGIC_PRE_TRIGGER_RING_BITS + 1u);
+        channel_config_set_write_increment(&dma_cfg, true);
+        channel_config_set_read_increment(&dma_cfg, false);
+        channel_config_set_dreq(&dma_cfg, pio_get_dreq(pio0, s_sm_pre_trigger, false));
+        channel_config_set_chain_to(&dma_cfg, s_dma_pre_trigger_reload);
 
-    // Init triggers
-    trigger_count_ = 0;
-    sm_trigger_mask_ = 0;
-    triggered_channel_ = -1;
-    for (uint i = 0; i < MAX_TRIGGER_COUNT; i++) {
-        if (s_logic_capture_config.trigger[i].is_enabled) {
-            if (!set_trigger(s_logic_capture_config.trigger[i])) {
-                debug_block("\n[logic] start rejected reason=trigger_setup_failed index=%u", i);
-                capture_stop();
-                s_phase = LOGIC_CAPTURE_PHASE_DISARMED;
-                return false;
-            }
+        dma_channel_configure(s_dma_pre_trigger_capture, &dma_cfg, &s_pre_trigger_buffer, &pio0->rxf[s_sm_pre_trigger],
+                              LOGIC_PRE_TRIGGER_RING_TRANSFER_COUNT, false);
+    }
+
+    s_offset_post_trigger = pio_add_program(pio0, &capture_program);
+    s_pio_config_post_trigger = capture_program_get_default_config(s_offset_post_trigger);
+    sm_config_set_in_pins(&s_pio_config_post_trigger, s_pin_base);
+    sm_config_set_in_shift(&s_pio_config_post_trigger, false, true, s_pin_count);
+    sm_config_set_clkdiv(&s_pio_config_post_trigger, s_clk_div);
+    pio_sm_init(pio0, s_sm_post_trigger, s_offset_post_trigger, &s_pio_config_post_trigger);
+    pio0->instr_mem[s_offset_post_trigger] = pio_encode_in(pio_pins, s_pin_count);
+
+    {
+        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_post_trigger_capture);
+        channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_16);
+        channel_config_set_write_increment(&dma_cfg, true);
+        channel_config_set_read_increment(&dma_cfg, false);
+        channel_config_set_dreq(&dma_cfg, pio_get_dreq(pio0, s_sm_post_trigger, false));
+        dma_channel_set_irq0_enabled(s_dma_post_trigger_capture, true);
+        irq_set_exclusive_handler(DMA_IRQ_0, logic_capture_complete_handler);
+        irq_set_enabled(DMA_IRQ_0, true);
+        dma_channel_configure(s_dma_post_trigger_capture, &dma_cfg, &s_post_trigger_buffer,
+                              &pio0->rxf[s_sm_post_trigger], s_post_trigger_samples, false);
+    }
+
+    for (uint i = 0u; i < LOGIC_CAPTURE_MAX_TRIGGER_COUNT; ++i) {
+        if (s_logic_capture_config.trigger[i].is_enabled &&
+            !logic_capture_configure_trigger(s_logic_capture_config.trigger[i])) {
+            debug_block("\n[logic] prepare rejected reason=trigger_setup_failed index=%u", i);
+            logic_capture_stop_hardware();
+            s_phase = LOGIC_CAPTURE_PHASE_DISARMED;
+            return false;
         }
     }
 
-    // Start state machines
-    if (!sm_trigger_mask_) {
-        pio_sm_set_enabled(pio0, sm_post_trigger_, true);
-    } else {
-        pio_set_sm_mask_enabled(pio0, (1 << sm_pre_trigger_) | (1 << sm_mux_), true);
-        pio_set_sm_mask_enabled(pio1, sm_trigger_mask_, true);
+    trigger_gate->enabled = s_trigger_count > 0u;
+    trigger_gate->dreq = trigger_gate->enabled ? pio_get_dreq(pio0, s_sm_mux, false) : 0u;
+
+    activation->pio0_enable_mask =
+        trigger_gate->enabled ? ((1u << s_sm_pre_trigger) | (1u << s_sm_mux)) : (1u << s_sm_post_trigger);
+    activation->pio1_enable_mask = trigger_gate->enabled ? s_sm_trigger_mask : 0u;
+
+    s_pio0_ctrl = (1u << s_sm_post_trigger);
+    s_pio1_ctrl = 0u;
+    s_phase = LOGIC_CAPTURE_PHASE_ARMED;
+
+    debug_block("\n[logic] prepare armed phase=%s samples=%u rate=%u pre=%u post=%u triggers=%u",
+                logic_capture_phase_name(s_phase), s_pre_trigger_samples + s_post_trigger_samples, s_rate,
+                s_pre_trigger_samples, s_post_trigger_samples, s_trigger_count);
+
+    return true;
+}
+
+bool logic_capture_arm(void) {
+    if (s_phase != LOGIC_CAPTURE_PHASE_ARMED) {
+        debug("\n[logic] arm rejected reason=bad_phase phase=%s", logic_capture_phase_name(s_phase));
+        return false;
     }
 
-    debug_block("\n[logic] start armed phase=%s samples=%u rate=%u pre=%u post=%u triggers=%u",
-                logic_capture_phase_name(s_phase),
-                pre_trigger_samples_ + post_trigger_samples_, rate_, pre_trigger_samples_,
-                post_trigger_samples_, trigger_count_);
+    if (s_activation_armed) {
+        debug("\n[logic] arm rejected reason=already_armed");
+        return false;
+    }
+
+    dma_channel_start(s_dma_post_trigger_capture);
+
+    if (s_sm_trigger_mask != 0u) {
+        dma_channel_start(s_dma_arm_post_trigger);
+        dma_channel_start(s_dma_pre_trigger_capture);
+        for (uint i = 0u; i < s_trigger_count; ++i) {
+            dma_channel_start(s_dma_trigger_to_mux[i]);
+        }
+    }
+
+    s_activation_armed = true;
+
+    debug_block("\n[logic] arm ready phase=%s samples=%u rate=%u pre=%u post=%u triggers=%u",
+                logic_capture_phase_name(s_phase), s_pre_trigger_samples + s_post_trigger_samples, s_rate,
+                s_pre_trigger_samples, s_post_trigger_samples, s_trigger_count);
+
+    return true;
+}
+
+void logic_capture_mark_capturing(void) {
+    if (s_phase != LOGIC_CAPTURE_PHASE_ARMED) {
+        return;
+    }
+
+    s_phase = LOGIC_CAPTURE_PHASE_CAPTURING;
+    s_activation_armed = false;
+}
+
+void logic_capture_activate(const logic_capture_activation_t *activation) {
+    if (s_phase != LOGIC_CAPTURE_PHASE_ARMED || !s_activation_armed || activation == NULL) {
+        debug("\n[logic] activate ignored reason=bad_state phase=%s armed=%u activation=%u",
+              logic_capture_phase_name(s_phase), s_activation_armed, activation != NULL);
+        return;
+    }
+
+    pio0->ctrl = activation->pio0_enable_mask;
+    if (activation->pio1_enable_mask != 0u) {
+        pio1->ctrl = activation->pio1_enable_mask;
+    }
+
+    logic_capture_mark_capturing();
+
+    debug_block("\n[logic] activate started phase=%s samples=%u rate=%u pre=%u post=%u triggers=%u",
+                logic_capture_phase_name(s_phase), s_pre_trigger_samples + s_post_trigger_samples, s_rate,
+                s_pre_trigger_samples, s_post_trigger_samples, s_trigger_count);
+}
+
+bool logic_capture_start(const capture_config_t *config, complete_handler_t handler) {
+    capture_trigger_gate_t trigger_gate = {.enabled = false, .dreq = 0u};
+    logic_capture_activation_t activation = {.pio0_enable_mask = 0u, .pio1_enable_mask = 0u};
+
+    if (!logic_capture_prepare(config, handler, &trigger_gate, &activation)) {
+        return false;
+    }
+
+    if (!logic_capture_arm()) {
+        logic_capture_reset();
+        return false;
+    }
+
+    logic_capture_activate(&activation);
     return true;
 }
 
 uint16_t logic_capture_get_sample_index(int index) {
-    uint total_samples = pre_trigger_count_ + post_trigger_samples_;
+    const uint total_samples = s_pre_trigger_count + s_post_trigger_samples;
 
-    if (index < 0 || (uint)index >= total_samples) return 0;
-
-    if ((uint)index < pre_trigger_count_) {
-        int pos = pre_trigger_first_ + index;
-
-        if (pos < 0)
-            pos += PRE_TRIGGER_BUFFER_SIZE;
-        else if (pos >= PRE_TRIGGER_BUFFER_SIZE)
-            pos -= PRE_TRIGGER_BUFFER_SIZE;
-
-        return pre_trigger_buffer_[pos];
+    if (index < 0 || (uint)index >= total_samples) {
+        return 0u;
     }
 
-    return post_trigger_buffer_[index - (int)pre_trigger_count_];
+    if ((uint)index < s_pre_trigger_count) {
+        int pos = s_pre_trigger_first + index;
+
+        if (pos < 0) {
+            pos += LOGIC_PRE_TRIGGER_BUFFER_SIZE;
+        } else if (pos >= (int)LOGIC_PRE_TRIGGER_BUFFER_SIZE) {
+            pos -= LOGIC_PRE_TRIGGER_BUFFER_SIZE;
+        }
+
+        return s_pre_trigger_buffer[pos];
+    }
+
+    return s_post_trigger_buffer[index - (int)s_pre_trigger_count];
 }
 
-uint logic_capture_get_samples_count(void) { return pre_trigger_count_ + post_trigger_samples_; }
+uint logic_capture_get_samples_count(void) { return s_pre_trigger_count + s_post_trigger_samples; }
 
-uint logic_capture_get_pre_trigger_count(void) { return pre_trigger_count_; }
+uint logic_capture_get_pre_trigger_count(void) { return s_pre_trigger_count; }
 
-int logic_capture_get_triggered_channel(void) { return triggered_channel_; }
-
-uint logic_capture_get_sm_mux(void) {
-    return sm_mux_;
-}
-
-uint logic_capture_get_trigger_count(void) {
-    return trigger_count_;
-}
+int logic_capture_get_triggered_channel(void) { return s_triggered_channel; }
 
 bool logic_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len) {
     const uint32_t total_bytes = logic_capture_get_samples_count() * sizeof(uint16_t);
@@ -374,168 +474,186 @@ bool logic_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_
     }
 
     if (s_phase != LOGIC_CAPTURE_PHASE_FINALIZED) {
-        debug("\n[logic] read rejected reason=not_finalized phase=%s",
-              logic_capture_phase_name(s_phase));
+        debug("\n[logic] read rejected reason=not_finalized phase=%s", logic_capture_phase_name(s_phase));
         return false;
     }
 
     if (s_capture_read_offset_bytes >= total_bytes) {
-        debug("\n[logic] read drained total_bytes=%lu",
-              (unsigned long)total_bytes);
+        debug("\n[logic] read drained total_bytes=%lu", (unsigned long)total_bytes);
         return false;
     }
 
     remaining_bytes = total_bytes - s_capture_read_offset_bytes;
     chunk_bytes = (remaining_bytes > LOGIC_CAPTURE_BLOCK_BYTES) ? LOGIC_CAPTURE_BLOCK_BYTES : (uint16_t)remaining_bytes;
 
-    uint index = s_capture_read_offset_bytes / sizeof(uint16_t);
-    for (uint i = 0; i < chunk_bytes / sizeof(uint16_t); ++i) {
-        const uint16_t sample = logic_capture_get_sample_index(index);
-        data[i * 2u] = (uint8_t)(sample & 0xFFu);
-        data[i * 2u + 1u] = (uint8_t)((sample >> 8) & 0xFFu);
-        ++index;
+    {
+        uint index = s_capture_read_offset_bytes / sizeof(uint16_t);
+
+        for (uint i = 0u; i < chunk_bytes / sizeof(uint16_t); ++i) {
+            const uint16_t sample = logic_capture_get_sample_index((int)index);
+            data[i * 2u] = (uint8_t)(sample & 0xffu);
+            data[i * 2u + 1u] = (uint8_t)((sample >> 8) & 0xffu);
+            ++index;
+        }
     }
 
     *block_id = (uint16_t)(s_capture_read_offset_bytes / LOGIC_CAPTURE_BLOCK_BYTES);
     *data_len = chunk_bytes;
     s_capture_read_offset_bytes += chunk_bytes;
 
-    debug("\n[logic] read result block=%u data_len=%u next_offset=%lu pending=%s",
-          *block_id, *data_len, (unsigned long)s_capture_read_offset_bytes,
-          s_capture_read_offset_bytes < total_bytes ? "yes" : "no");
+    debug("\n[logic] read result block=%u data_len=%u next_offset=%lu pending=%s", *block_id, *data_len,
+          (unsigned long)s_capture_read_offset_bytes, s_capture_read_offset_bytes < total_bytes ? "yes" : "no");
 
     return true;
 }
 
 capture_state_t logic_capture_get_state(void) {
-    if (s_phase == LOGIC_CAPTURE_PHASE_CAPTURING) {
+    if (s_phase == LOGIC_CAPTURE_PHASE_ARMED || s_phase == LOGIC_CAPTURE_PHASE_CAPTURING) {
         return CAPTURE_RUNNING;
     }
 
     return CAPTURE_IDLE;
 }
 
-static inline bool set_trigger(trigger_t trigger) {
-    if (trigger_count_ < MAX_TRIGGER_COUNT) {
-        switch (trigger.match) {
+static inline bool logic_capture_configure_trigger(trigger_t trigger) {
+    if (s_trigger_count >= LOGIC_CAPTURE_MAX_TRIGGER_COUNT) {
+        return false;
+    }
+
+    switch (trigger.match) {
+        case TRIGGER_TYPE_LEVEL_HIGH:
+            s_offset_trigger[s_trigger_count] = pio_add_program(pio1, &trigger_level_high_program);
+            s_pio_config_trigger[s_trigger_count] =
+                trigger_level_high_program_get_default_config(s_offset_trigger[s_trigger_count]);
+            break;
+        case TRIGGER_TYPE_LEVEL_LOW:
+            s_offset_trigger[s_trigger_count] = pio_add_program(pio1, &trigger_level_low_program);
+            s_pio_config_trigger[s_trigger_count] =
+                trigger_level_low_program_get_default_config(s_offset_trigger[s_trigger_count]);
+            break;
+        case TRIGGER_TYPE_EDGE_HIGH:
+            s_offset_trigger[s_trigger_count] = pio_add_program(pio1, &trigger_edge_high_program);
+            s_pio_config_trigger[s_trigger_count] =
+                trigger_edge_high_program_get_default_config(s_offset_trigger[s_trigger_count]);
+            break;
+        case TRIGGER_TYPE_EDGE_LOW:
+            s_offset_trigger[s_trigger_count] = pio_add_program(pio1, &trigger_edge_low_program);
+            s_pio_config_trigger[s_trigger_count] =
+                trigger_edge_low_program_get_default_config(s_offset_trigger[s_trigger_count]);
+            break;
+    }
+
+    sm_config_set_clkdiv(&s_pio_config_trigger[s_trigger_count], s_clk_div);
+    sm_config_set_in_pins(&s_pio_config_trigger[s_trigger_count], trigger.pin);
+    pio_sm_init(pio1, s_sm_trigger[s_trigger_count], s_offset_trigger[s_trigger_count],
+                &s_pio_config_trigger[s_trigger_count]);
+
+    s_sm_trigger_mask |= 1u << s_sm_trigger[s_trigger_count];
+
+    {
+        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_trigger_to_mux[s_trigger_count]);
+        channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+        channel_config_set_write_increment(&dma_cfg, false);
+        channel_config_set_read_increment(&dma_cfg, false);
+        channel_config_set_dreq(&dma_cfg, pio_get_dreq(pio1, s_sm_trigger[s_trigger_count], false));
+
+        dma_channel_configure(s_dma_trigger_to_mux[s_trigger_count], &dma_cfg, &pio0->txf[s_sm_mux],
+                              &s_triggered_channel_index[s_trigger_count], 1u, false);
+    }
+
+    if (debug_is_enabled()) {
+        char match[15] = "";
+
+        switch (s_logic_capture_config.trigger[s_trigger_count].match) {
             case TRIGGER_TYPE_LEVEL_HIGH:
-                offset_trigger_[trigger_count_] = pio_add_program(pio1, &trigger_level_high_program);
-                pio_config_trigger_[trigger_count_] =
-                    trigger_level_high_program_get_default_config(offset_trigger_[trigger_count_]);
+                strcpy(match, "Level High");
                 break;
             case TRIGGER_TYPE_LEVEL_LOW:
-                offset_trigger_[trigger_count_] = pio_add_program(pio1, &trigger_level_low_program);
-                pio_config_trigger_[trigger_count_] =
-                    trigger_level_low_program_get_default_config(offset_trigger_[trigger_count_]);
+                strcpy(match, "Level Low");
                 break;
             case TRIGGER_TYPE_EDGE_HIGH:
-                offset_trigger_[trigger_count_] = pio_add_program(pio1, &trigger_edge_high_program);
-                pio_config_trigger_[trigger_count_] =
-                    trigger_edge_high_program_get_default_config(offset_trigger_[trigger_count_]);
+                strcpy(match, "Edge High");
                 break;
             case TRIGGER_TYPE_EDGE_LOW:
-                offset_trigger_[trigger_count_] = pio_add_program(pio1, &trigger_edge_low_program);
-                pio_config_trigger_[trigger_count_] =
-                    trigger_edge_low_program_get_default_config(offset_trigger_[trigger_count_]);
+                strcpy(match, "Edge Low");
                 break;
         }
-        sm_config_set_clkdiv(&pio_config_trigger_[trigger_count_], clk_div_);
-        sm_config_set_in_pins(&pio_config_trigger_[trigger_count_], trigger.pin);
-        pio_sm_init(pio1, sm_trigger_[trigger_count_], offset_trigger_[trigger_count_],
-                    &pio_config_trigger_[trigger_count_]);
-        sm_trigger_mask_ |= 1 << sm_trigger_[trigger_count_];
 
-        dma_channel_config channel_config_trigger =
-            dma_channel_get_default_config(dma_channel_trigger_[trigger_count_]);
-        channel_config_set_transfer_data_size(&channel_config_trigger, DMA_SIZE_32);
-        channel_config_set_write_increment(&channel_config_trigger, false);
-        channel_config_set_read_increment(&channel_config_trigger, false);
-        channel_config_set_dreq(&channel_config_trigger, pio_get_dreq(pio1, sm_trigger_[trigger_count_], false));
-        dma_channel_configure(dma_channel_trigger_[trigger_count_], &channel_config_trigger,
-                              &pio0->txf[sm_mux_],                        // write address
-                              &triggered_channel_index_[trigger_count_],  // read address
-                              1, true);
-
-        if (debug_is_enabled()) {
-            char match[15] = "";
-            switch (s_logic_capture_config.trigger[trigger_count_].match) {
-                case TRIGGER_TYPE_LEVEL_HIGH:
-                    strcpy(match, "Level High");
-                    break;
-                case TRIGGER_TYPE_LEVEL_LOW:
-                    strcpy(match, "Level Low");
-                    break;
-                case TRIGGER_TYPE_EDGE_HIGH:
-                    strcpy(match, "Edge High");
-                    break;
-                case TRIGGER_TYPE_EDGE_LOW:
-                    strcpy(match, "Edge Low");
-                    break;
-            }
-            debug_block("\n[logic] trigger configured index=%u pin=%u match=%s", trigger_count_,
-                        s_logic_capture_config.trigger[trigger_count_].pin, match);
-        }
-
-        trigger_count_++;
-        return true;
+        debug_block("\n[logic] trigger configured index=%u pin=%u match=%s", s_trigger_count,
+                    s_logic_capture_config.trigger[s_trigger_count].pin, match);
     }
-    return false;
+
+    ++s_trigger_count;
+    return true;
 }
 
-static inline void trigger_handler(void) {
-    triggered_channel_ = pio_sm_get(pio0, sm_mux_);
-    pio_interrupt_clear(pio0, 0);
-    debug("\n[logic] trigger fired channel=%d", triggered_channel_);
+static inline void logic_capture_trigger_handler(void) {
+    s_triggered_channel = pio_sm_get(pio0, s_sm_mux);
+    pio_interrupt_clear(pio0, 0u);
+    debug("\n[logic] trigger fired channel=%d", s_triggered_channel);
 }
 
-static inline void capture_complete_handler(void) {
-    dma_hw->ints0 = 1u << dma_channel_post_trigger_;
+static inline void logic_capture_complete_handler(void) {
+    dma_hw->ints0 = 1u << s_dma_post_trigger_capture;
+
     if (s_phase == LOGIC_CAPTURE_PHASE_CAPTURING) {
-        // Set pre trigger range
-        pre_trigger_first_ = 0;
-        pre_trigger_count_ = 0;
-        if (pre_trigger_samples_) {
-            uint transfer_count = PRE_TRIGGER_RING_TRANSFER_COUNT - dma_hw->ch[dma_channel_pre_trigger_].transfer_count;
-            pre_trigger_first_ = (int)(transfer_count % PRE_TRIGGER_BUFFER_SIZE) - (int)pre_trigger_samples_;
-            pre_trigger_count_ = pre_trigger_samples_;
-            if ((pre_trigger_first_ < 0) && (transfer_count < PRE_TRIGGER_BUFFER_SIZE)) {
-                pre_trigger_first_ = 0;
-                pre_trigger_count_ = transfer_count;
+        s_pre_trigger_first = 0;
+        s_pre_trigger_count = 0u;
+
+        if (s_pre_trigger_samples != 0u) {
+            uint transfer_count =
+                LOGIC_PRE_TRIGGER_RING_TRANSFER_COUNT - dma_hw->ch[s_dma_pre_trigger_capture].transfer_count;
+
+            s_pre_trigger_first = (int)(transfer_count % LOGIC_PRE_TRIGGER_BUFFER_SIZE) - (int)s_pre_trigger_samples;
+            s_pre_trigger_count = s_pre_trigger_samples;
+
+            if (s_pre_trigger_first < 0 && transfer_count < LOGIC_PRE_TRIGGER_BUFFER_SIZE) {
+                s_pre_trigger_first = 0;
+                s_pre_trigger_count = transfer_count;
             }
         }
-        capture_stop();
+
+        logic_capture_stop_hardware();
         s_phase = LOGIC_CAPTURE_PHASE_FINALIZED;
-        debug("\n[logic] complete phase=%s triggered_channel=%d pre_count=%u post_count=%u total_samples=%u pending_bytes=%lu",
-              logic_capture_phase_name(s_phase), triggered_channel_, pre_trigger_count_,
-              post_trigger_samples_, pre_trigger_count_ + post_trigger_samples_,
+
+        debug("\n[logic] complete phase=%s triggered_channel=%d pre_count=%u post_count=%u total_samples=%u "
+              "pending_bytes=%lu",
+              logic_capture_phase_name(s_phase), s_triggered_channel, s_pre_trigger_count, s_post_trigger_samples,
+              s_pre_trigger_count + s_post_trigger_samples,
               (unsigned long)(logic_capture_get_samples_count() * sizeof(uint16_t)));
-        if (handler_) handler_();
+
+        if (s_complete_handler != NULL) {
+            s_complete_handler();
+        }
     } else {
         s_phase = LOGIC_CAPTURE_PHASE_DISARMED;
         debug("\n[logic] complete ignored phase=%s", logic_capture_phase_name(s_phase));
     }
 }
 
-static inline void capture_stop(void) {
-    pio_set_sm_mask_enabled(pio0, (1 << sm_mux_) | (1 << sm_pre_trigger_) | (1 << sm_post_trigger_), false);
-    pio_set_sm_mask_enabled(pio1, sm_trigger_mask_, false);
-    dma_channel_abort(dma_channel_pre_trigger_);
-    dma_channel_abort(dma_channel_post_trigger_);
-    dma_channel_abort(dma_channel_pio0_ctrl_);
-    dma_channel_abort(dma_channel_pio1_ctrl_);
-    for (uint i = 0; i < trigger_count_; i++) {
-        dma_channel_abort(dma_channel_trigger_[i]);
-        pio_sm_clear_fifos(pio1, sm_trigger_[i]);
+static inline void logic_capture_stop_hardware(void) {
+    pio_set_sm_mask_enabled(pio0, (1u << s_sm_mux) | (1u << s_sm_pre_trigger) | (1u << s_sm_post_trigger), false);
+    pio_set_sm_mask_enabled(pio1, s_sm_trigger_mask, false);
+
+    dma_channel_abort(s_dma_pre_trigger_capture);
+    dma_channel_abort(s_dma_post_trigger_capture);
+    dma_channel_abort(s_dma_arm_post_trigger);
+    dma_channel_abort(s_dma_stop_trigger_path);
+
+    for (uint i = 0u; i < s_trigger_count; ++i) {
+        dma_channel_abort(s_dma_trigger_to_mux[i]);
+        pio_sm_clear_fifos(pio1, s_sm_trigger[i]);
     }
-    pio_sm_clear_fifos(pio0, sm_mux_);
-    pio_sm_clear_fifos(pio0, sm_pre_trigger_);
-    pio_sm_clear_fifos(pio0, sm_post_trigger_);
+
+    pio_sm_clear_fifos(pio0, s_sm_mux);
+    pio_sm_clear_fifos(pio0, s_sm_pre_trigger);
+    pio_sm_clear_fifos(pio0, s_sm_post_trigger);
     pio_clear_instruction_memory(pio0);
     pio_clear_instruction_memory(pio1);
 }
 
-static void configure_inputs(void) {
-    for (uint32_t pin = 0u; pin < LOGIC_CAPTURE_CHANNELS; ++pin) {
+static void logic_capture_configure_inputs(void) {
+    for (uint32_t pin = 0u; pin < LOGIC_CAPTURE_CHANNEL_COUNT; ++pin) {
         gpio_init(pin);
         gpio_set_dir(pin, false);
         gpio_pull_down(pin);
