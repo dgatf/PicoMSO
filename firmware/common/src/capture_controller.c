@@ -18,19 +18,58 @@
 
 #include "capture_controller.h"
 
+#include "debug.h"
+
+static const char *stream_name(uint8_t streams)
+{
+    switch (streams) {
+    case PICOMSO_STREAM_NONE:
+        return "none";
+    case PICOMSO_STREAM_LOGIC:
+        return "logic";
+    case PICOMSO_STREAM_SCOPE:
+        return "scope";
+    case (PICOMSO_STREAM_LOGIC | PICOMSO_STREAM_SCOPE):
+        return "logic|scope";
+    default:
+        return "invalid";
+    }
+}
+
+static const char *capture_state_name(capture_state_t state)
+{
+    switch (state) {
+    case CAPTURE_IDLE:
+        return "IDLE";
+    case CAPTURE_RUNNING:
+        return "RUNNING";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 void capture_controller_init(capture_controller_t *ctrl)
 {
     ctrl->streams_enabled = PICOMSO_STREAM_NONE;
     ctrl->state = CAPTURE_IDLE;
+    debug("\n[capture_ctrl] init streams=%s state=%s",
+          stream_name(ctrl->streams_enabled),
+          capture_state_name(ctrl->state));
 }
 
 void capture_controller_set_streams(capture_controller_t *ctrl, uint8_t streams)
 {
+    debug("\n[capture_ctrl] set_streams prev=%s new=%s",
+          stream_name(ctrl->streams_enabled), stream_name(streams));
     ctrl->streams_enabled = streams;
 }
 
 void capture_controller_set_state(capture_controller_t *ctrl, capture_state_t state)
 {
+    if (ctrl->state != state) {
+        debug("\n[capture_ctrl] set_state prev=%s new=%s",
+              capture_state_name(ctrl->state), capture_state_name(state));
+    }
     ctrl->state = state;
 }
 
