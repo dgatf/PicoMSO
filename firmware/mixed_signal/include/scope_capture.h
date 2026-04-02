@@ -29,7 +29,7 @@ extern "C" {
 #include "types.h"
 
 #define SCOPE_CAPTURE_BLOCK_BYTES  64u
-#define SCOPE_CAPTURE_MAX_SAMPLES  16384u
+#define SCOPE_CAPTURE_MAX_SAMPLES  50000u
 
 void scope_capture_reset(void);
 bool scope_capture_start(const capture_config_t *config, complete_handler_t handler);
