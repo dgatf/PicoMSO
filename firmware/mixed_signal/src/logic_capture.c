@@ -50,7 +50,7 @@ static capture_config_t s_logic_capture_config = {.total_samples = 0u,
                                                   .pre_trigger_samples = 0u,
                                                   .channels = LOGIC_CAPTURE_CHANNELS,
                                                   .trigger = {
-                                                      {.is_enabled = true, .pin = 0u, .match = TRIGGER_TYPE_EDGE_HIGH},
+                                                      {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
                                                       {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
                                                       {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
                                                       {.is_enabled = false, .pin = 0u, .match = TRIGGER_TYPE_LEVEL_LOW},
