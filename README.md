@@ -1,39 +1,30 @@
 # PicoMSO
 
-RP2040 mixed-signal firmware with shared logic-capture, scope-capture, protocol,
-transport, and integration layers under `firmware/`.
+PicoMSO is an RP2040-based mixed-signal instrument that combines logic-analyzer
+and oscilloscope functionality in a single firmware and host integration stack.
 
-## Repository layout
+## Specifications
 
-```text
-PicoMSO/
-├── README.md
-├── docs/
-│   ├── architecture.md
-│   ├── building.md
-│   ├── protocol.md
-│   └── repository-transition.md
-├── external/
-│   └── pico-sdk/
-├── firmware/
-│   ├── app/
-│   ├── common/
-│   ├── integration/
-│   ├── mixed_signal/
-│   ├── protocol/
-│   └── transport/
-├── src/
-└── utils/
-```
+### Logic analyzer
 
-## Firmware structure
+- **Channels:** 16 digital channels
+- **Maximum sample rate:** up to **200 MHz**
+- **Capture depth:** up to **100K samples**
+- **Pre-trigger buffer:** up to **1K samples**
+- **Trigger support:** level and edge trigger support
+- **Compression:** RLE support
 
-- `firmware/app/` - current Pico SDK application entry point
-- `firmware/common/` - shared debug, types, and capture-controller state
-- `firmware/mixed_signal/` - logic and scope capture backends
-- `firmware/protocol/` - packet format and command dispatch
-- `firmware/transport/` - transport abstraction plus USB backend
-- `firmware/integration/` - receive/dispatch/send glue
+### Oscilloscope
+
+- **Channels:** 2 analog channels
+- **Maximum sample rate:** up to **2 MS/s**
+
+## PulseView example
+
+The screenshot below shows PicoMSO running in PulseView with digital and analog
+data displayed in the same session.
+
+![PicoMSO PulseView example](docs/images/picomso-pulseview.png)
 
 ## Build
 
@@ -46,7 +37,7 @@ cmake -S firmware/app -B build/picomso
 cmake --build build/picomso
 ```
 
-See:
+Additional documentation:
 
 - [`docs/building.md`](docs/building.md)
 - [`docs/architecture.md`](docs/architecture.md)
@@ -61,3 +52,8 @@ fork repository: [`https://github.com/dgatf/libsigrok`](https://github.com/dgatf
 
 The sigrok documentation covers the required dependencies, general build flow,
 and platform-specific notes for building from source.
+
+## Status
+
+PicoMSO is currently feature-complete and functional, with final validation,
+cleanup, and documentation polish still in progress.

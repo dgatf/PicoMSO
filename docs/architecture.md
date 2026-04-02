@@ -26,9 +26,9 @@ firmware/app
   -> firmware/mixed_signal
 ```
 
-`firmware/app/main.c` initializes USB transport, binds it to the generic
-transport context, binds that context to the integration layer, and then polls
-`integration_process_one()`.
+`firmware/app/main.c` initializes the USB transport backend, binds it to the
+generic transport context, binds that context to the integration layer, and then
+polls `integration_process_one()` in the main loop.
 
 ## Common layer
 
@@ -52,6 +52,9 @@ The stream bitmask values are:
 Both logic-only, scope-only, and combined logic+scope selections are supported
 by the current controller and protocol code.
 
+The common controller represents the externally visible capture state used by the
+protocol layer, while each capture backend keeps its own internal runtime state.
+
 ## Mixed-signal capture layer
 
 `firmware/mixed_signal/` provides two concrete backends:
@@ -65,6 +68,14 @@ Both backends implement the same high-level lifecycle:
 2. perform a finite capture
 3. store finalized data
 4. serve fixed-size blocks through `READ_DATA_BLOCK`
+
+Captures are finite acquisitions, not continuous streaming sessions.
+
+Each backend owns its own capture progress, finalized sample storage, and read
+offset state used when serving host block-read requests.
+
+In mixed-signal mode, logic and scope data are handled as two independent data
+streams. They are not interleaved into a single combined payload.
 
 ## Protocol layer
 
@@ -81,6 +92,12 @@ payloads, and the dispatch logic for:
 `SET_MODE` currently takes a stream bitmask payload. The command name is kept as
 implemented in the wire protocol, but the behavior is stream selection rather
 than selection of a separate standalone firmware image.
+
+`REQUEST_CAPTURE` starts a finite acquisition for the currently enabled stream
+selection.
+
+`READ_DATA_BLOCK` is a host-driven pull mechanism. Each request returns the next
+available finalized block from one enabled stream.
 
 `READ_DATA_BLOCK` returns `PICOMSO_MSG_DATA_BLOCK` responses that include a
 `stream_id`, so the host can distinguish logic and scope blocks when both
