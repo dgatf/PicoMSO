@@ -17,10 +17,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Get actions code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: 'true'
+          submodules: recursive
+          fetch-depth: 0
 
       - name: Git tags
         run: git fetch --prune --unshallow
