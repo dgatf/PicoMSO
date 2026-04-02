@@ -25,20 +25,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
           fetch-depth: 0
+
+      - name: Verify submodules
+        run: |
+          git submodule status
+          test -d external/pico-sdk
 
       - name: Build firmware
         uses: samyarsadat/Pico-Build-Action@v1
         with:
-          source_dir: "."
+          source_dir: "firmware/app"
           output_dir: "build/picomso"
-          cmake_args: "-DCMAKE_BUILD_TYPE=Release -S firmware/app -B build/picomso"
+          cmake_args: "-DCMAKE_BUILD_TYPE=Release"
 
       - name: Prepare artifact
         run: |
           mkdir -p dist
-          cp build/picomso/picomso.uf2 dist/picomso.uf2
+          cp firmware/app/build/picomso/picomso.uf2 dist/picomso.uf2
 
       - name: Generate attestation
         uses: actions/attest-build-provenance@v3
@@ -54,7 +59,6 @@ jobs:
           Firmware:
           - commit: "${{ github.event.head_commit.message }}"
           - commit-url: "https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
-
           EOF
 
       - name: Publish firmware to Development release
