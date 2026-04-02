@@ -34,8 +34,8 @@
 
 #define PRE_TRIGGER_RING_BITS 10
 #define PRE_TRIGGER_BUFFER_SIZE (1 << PRE_TRIGGER_RING_BITS)
+#define POST_TRIGGER_BUFFER_SIZE 50000
 #define PRE_TRIGGER_RING_TRANSFER_COUNT ((0xffffffffu / PRE_TRIGGER_BUFFER_SIZE) * PRE_TRIGGER_BUFFER_SIZE)
-#define POST_TRIGGER_BUFFER_SIZE 10000
 
 #define GPIO_COUPLING_CH1_DC 20
 #define GPIO_COUPLING_CH2_DC 21
@@ -65,7 +65,7 @@ static scope_capture_phase_t s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
 static uint32_t s_capture_read_offset_bytes = 0u;
 
 static const uint dma_channel_adc_ = 7, dma_channel_adc_post_ = 8, dma_channel_reload_adc_counter_ = 9,
-                  dma_channel_dma_pre_ = 10, dma_channel_dma_post_ = 11, reload_counter_ = 0xffffffffu;
+                  dma_channel_dma_pre_ = 10, dma_channel_dma_post_ = 11, reload_counter_ = PRE_TRIGGER_RING_TRANSFER_COUNT;
 static uint slice_num_;
 static uint16_t pre_trigger_buffer_[PRE_TRIGGER_BUFFER_SIZE]
     __attribute__((aligned(PRE_TRIGGER_BUFFER_SIZE * sizeof(uint16_t)))),
@@ -194,7 +194,7 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
     dma_channel_configure(dma_channel_adc_, &channel_config_adc,
                           &pre_trigger_buffer_,  // write address
                           &adc_hw->fifo,         // read address
-                          0xffffffffu, false);
+                          PRE_TRIGGER_RING_TRANSFER_COUNT, false);
 
     // DMA channel ADC post
     dma_channel_config channel_config_adc_post = dma_channel_get_default_config(dma_channel_adc_post_);
@@ -217,14 +217,14 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
     channel_config_set_dreq(&config_dma_channel_dma_pre, pio_get_dreq(pio0, logic_capture_get_sm_mux(), false));
     channel_config_set_chain_to(&config_dma_channel_dma_pre, dma_channel_dma_post_);
     dma_channel_configure(dma_channel_dma_pre_, &config_dma_channel_dma_pre,
-                          &dma_hw->multi_channel_trigger,  // write address
+                          &dma_hw->abort,  // write address
                           &dma_pre_,                       // read address
-                          1, false);
+                          1, true);
     channel_config_set_transfer_data_size(&config_dma_channel_dma_post, DMA_SIZE_32);
     channel_config_set_write_increment(&config_dma_channel_dma_post, false);
     channel_config_set_read_increment(&config_dma_channel_dma_post, false);
     dma_channel_configure(dma_channel_dma_post_, &config_dma_channel_dma_post,
-                          &dma_hw->abort,  // write address
+                          &dma_hw->multi_channel_trigger,  // write address
                           &dma_post_,      // read address
                           1, false);
     irq_set_exclusive_handler(DMA_IRQ_1, complete_handler);
@@ -388,7 +388,7 @@ static void scope_capture_configure_adc(void) {
 uint scope_capture_get_samples_count(void) { return pre_trigger_count_ + post_trigger_samples_; }
 
 static inline void complete_handler(void) {
-    dma_hw->ints0 = 1u << dma_channel_adc_post_;
+    dma_hw->ints1 = 1u << dma_channel_adc_post_;
     if (s_phase == SCOPE_CAPTURE_PHASE_CAPTURING) {
         // Set pre trigger range
         pre_trigger_first_ = 0;

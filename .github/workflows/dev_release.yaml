@@ -4,7 +4,7 @@ on:
   workflow_dispatch: {}
   push:
     branches:
-      - master
+      - main
     paths:
       - firmware/**
 
@@ -49,7 +49,7 @@ jobs:
         uses: actions/attest-build-provenance@v3
         with:
           subject-path: dist/picomso.uf2
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.TOKEN }}
 
       - name: Write release body
         run: |
