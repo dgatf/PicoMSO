@@ -28,9 +28,6 @@
  * real capture stream/state.
  *
  * GET_INFO and GET_CAPABILITIES continue to return static values.
- *
- * For now, the control plane already uses a stream bitmask, but the
- * mixed combination LOGIC|SCOPE is still reported as unsupported.
  */
 
 #include <string.h>
@@ -52,6 +49,7 @@
 
 /* -----------------------------------------------------------------------
  * Static device capability bitmap.
+ *
  * In a future phase this may be read from hardware-detection logic.
  * ----------------------------------------------------------------------- */
 
@@ -67,6 +65,18 @@ static capture_controller_t s_capture_ctrl = {
     .streams_enabled = PICOMSO_STREAM_NONE,
     .state = CAPTURE_IDLE
 };
+
+/* -----------------------------------------------------------------------
+ * Minimal mixed-mode runtime tracking.
+ *
+ * This is a temporary protocol-level orchestration layer so that mixed
+ * logic+scope capture can be exercised before a dedicated TX scheduler
+ * exists.
+ * ----------------------------------------------------------------------- */
+
+static volatile bool s_logic_capture_done = false;
+static volatile bool s_scope_capture_done = false;
+static bool s_mixed_read_prefer_logic = true;
 
 static const char *stream_name(uint8_t streams)
 {
@@ -202,6 +212,38 @@ static void copy_request_triggers(capture_config_t *capture_config,
     }
 }
 
+static void mixed_capture_reset_tracking(void)
+{
+    s_logic_capture_done = false;
+    s_scope_capture_done = false;
+    s_mixed_read_prefer_logic = true;
+}
+
+static void update_controller_state_from_backends(uint8_t streams)
+{
+    capture_state_t logic_state = CAPTURE_IDLE;
+    capture_state_t scope_state = CAPTURE_IDLE;
+
+    if ((streams & PICOMSO_STREAM_LOGIC) != 0u)
+        logic_state = logic_capture_get_state();
+
+    if ((streams & PICOMSO_STREAM_SCOPE) != 0u)
+        scope_state = scope_capture_get_state();
+
+    if (stream_mask_is_mixed(streams)) {
+        if (logic_state == CAPTURE_RUNNING || scope_state == CAPTURE_RUNNING)
+            capture_controller_set_state(&s_capture_ctrl, CAPTURE_RUNNING);
+        else
+            capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
+    } else if (streams == PICOMSO_STREAM_LOGIC) {
+        capture_controller_set_state(&s_capture_ctrl, logic_state);
+    } else if (streams == PICOMSO_STREAM_SCOPE) {
+        capture_controller_set_state(&s_capture_ctrl, scope_state);
+    } else {
+        capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
+    }
+}
+
 /* -----------------------------------------------------------------------
  * GET_INFO handler
  * ----------------------------------------------------------------------- */
@@ -253,33 +295,23 @@ picomso_status_t picomso_handle_get_status(const picomso_packet_header_t *hdr,
     picomso_status_response_t status;
     uint8_t streams;
     capture_state_t controller_before;
-    capture_state_t backend_state;
 
     (void)payload;
 
     streams = capture_controller_get_streams(&s_capture_ctrl);
     controller_before = capture_controller_get_state(&s_capture_ctrl);
-    backend_state = CAPTURE_IDLE;
 
-    if (streams == PICOMSO_STREAM_LOGIC) {
-        backend_state = logic_capture_get_state();
-        capture_controller_set_state(&s_capture_ctrl, backend_state);
-    } else if (streams == PICOMSO_STREAM_SCOPE) {
-        backend_state = scope_capture_get_state();
-        capture_controller_set_state(&s_capture_ctrl, backend_state);
-    } else {
-        backend_state = CAPTURE_IDLE;
-        capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
-    }
+    update_controller_state_from_backends(streams);
 
     status.streams = streams;
     status.capture_state = (uint8_t)capture_controller_get_state(&s_capture_ctrl);
 
-    debug("\n[protocol] GET_STATUS streams=%s ctrl_before=%s backend=%s result=%s",
+    debug("\n[protocol] GET_STATUS streams=%s ctrl_before=%s result=%s logic_done=%u scope_done=%u",
           stream_name(streams),
           capture_state_name(controller_before),
-          capture_state_name(backend_state),
-          capture_state_name((capture_state_t)status.capture_state));
+          capture_state_name((capture_state_t)status.capture_state),
+          s_logic_capture_done ? 1u : 0u,
+          s_scope_capture_done ? 1u : 0u);
 
     build_response(hdr, PICOMSO_MSG_ACK, &status, (uint16_t)sizeof(status), resp);
     return PICOMSO_STATUS_OK;
@@ -318,16 +350,10 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
         return PICOMSO_STATUS_ERR_BAD_MODE;
     }
 
-    if (stream_mask_is_mixed(req.streams)) {
-        debug("\n[protocol] SET_MODE rejected reason=mixed_streams streams=%s",
-              stream_name(req.streams));
-        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE,
-                            "mixed stream combination not supported yet", resp);
-        return PICOMSO_STATUS_ERR_BAD_MODE;
-    }
-
     logic_capture_reset();
     scope_capture_reset();
+    mixed_capture_reset_tracking();
+
     capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
     capture_controller_set_streams(&s_capture_ctrl, req.streams);
 
@@ -343,26 +369,46 @@ picomso_status_t picomso_handle_set_mode(const picomso_packet_header_t *hdr,
  * REQUEST_CAPTURE handler
  *
  * Starts a capture for the currently selected stream.
- *
- * The control plane already accepts a stream bitmask, but for now only
- * single-stream capture is supported. Mixed LOGIC|SCOPE is explicitly
- * rejected until the TX orchestration layer exists.
  * ----------------------------------------------------------------------- */
 
 static void logic_capture_complete_handler(void)
 {
-    capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
-    debug("\n[protocol] capture_complete backend=logic streams=%s state=%s",
+    s_logic_capture_done = true;
+
+    if (capture_controller_get_streams(&s_capture_ctrl) == PICOMSO_STREAM_LOGIC) {
+        capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
+    } else if (stream_mask_is_mixed(capture_controller_get_streams(&s_capture_ctrl))) {
+        if (s_logic_capture_done && s_scope_capture_done)
+            capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
+        else
+            capture_controller_set_state(&s_capture_ctrl, CAPTURE_RUNNING);
+    }
+
+    debug("\n[protocol] capture_complete backend=logic streams=%s state=%s logic_done=%u scope_done=%u",
           stream_name(capture_controller_get_streams(&s_capture_ctrl)),
-          capture_state_name(capture_controller_get_state(&s_capture_ctrl)));
+          capture_state_name(capture_controller_get_state(&s_capture_ctrl)),
+          s_logic_capture_done ? 1u : 0u,
+          s_scope_capture_done ? 1u : 0u);
 }
 
 static void scope_capture_complete_handler(void)
 {
-    capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
-    debug("\n[protocol] capture_complete backend=scope streams=%s state=%s",
+    s_scope_capture_done = true;
+
+    if (capture_controller_get_streams(&s_capture_ctrl) == PICOMSO_STREAM_SCOPE) {
+        capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
+    } else if (stream_mask_is_mixed(capture_controller_get_streams(&s_capture_ctrl))) {
+        if (s_logic_capture_done && s_scope_capture_done)
+            capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
+        else
+            capture_controller_set_state(&s_capture_ctrl, CAPTURE_RUNNING);
+    }
+
+    debug("\n[protocol] capture_complete backend=scope streams=%s state=%s logic_done=%u scope_done=%u",
           stream_name(capture_controller_get_streams(&s_capture_ctrl)),
-          capture_state_name(capture_controller_get_state(&s_capture_ctrl)));
+          capture_state_name(capture_controller_get_state(&s_capture_ctrl)),
+          s_logic_capture_done ? 1u : 0u,
+          s_scope_capture_done ? 1u : 0u);
 }
 
 picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *hdr,
@@ -371,8 +417,9 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
 {
     picomso_request_capture_request_t req;
     uint8_t active_streams;
-    uint32_t max_samples;
-    bool capture_started;
+    uint32_t logic_max_samples = LOGIC_CAPTURE_MAX_SAMPLES;
+    uint32_t scope_max_samples = SCOPE_CAPTURE_MAX_SAMPLES;
+    bool capture_started = false;
     capture_config_t capture_config = {
         .total_samples = 0u,
         .rate = 0u,
@@ -387,14 +434,6 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         debug("\n[protocol] REQUEST_CAPTURE rejected reason=no_active_stream");
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE,
                             "capture stream not active", resp);
-        return PICOMSO_STATUS_ERR_BAD_MODE;
-    }
-
-    if (stream_mask_is_mixed(active_streams)) {
-        debug("\n[protocol] REQUEST_CAPTURE rejected reason=mixed_streams streams=%s",
-              stream_name(active_streams));
-        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE,
-                            "mixed stream combination not supported yet", resp);
         return PICOMSO_STATUS_ERR_BAD_MODE;
     }
 
@@ -423,20 +462,32 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
           (unsigned long)req.pre_trigger_samples,
           (unsigned long)request_trigger_count(&req));
 
-    max_samples = (active_streams == PICOMSO_STREAM_LOGIC)
-                    ? LOGIC_CAPTURE_MAX_SAMPLES
-                    : SCOPE_CAPTURE_MAX_SAMPLES;
+    if ((active_streams & PICOMSO_STREAM_LOGIC) != 0u) {
+        if (req.total_samples == 0u ||
+            req.total_samples > logic_max_samples ||
+            req.pre_trigger_samples > req.total_samples) {
+            debug("\n[protocol] REQUEST_CAPTURE rejected reason=invalid_logic_capture_sizing samples=%lu pre=%lu max=%lu",
+                  (unsigned long)req.total_samples,
+                  (unsigned long)req.pre_trigger_samples,
+                  (unsigned long)logic_max_samples);
+            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN,
+                                "invalid logic capture sizing", resp);
+            return PICOMSO_STATUS_ERR_BAD_LEN;
+        }
+    }
 
-    if (req.total_samples == 0u ||
-        req.total_samples > max_samples ||
-        req.pre_trigger_samples > req.total_samples) {
-        debug("\n[protocol] REQUEST_CAPTURE rejected reason=invalid_capture_sizing samples=%lu pre=%lu max=%lu",
-              (unsigned long)req.total_samples,
-              (unsigned long)req.pre_trigger_samples,
-              (unsigned long)max_samples);
-        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN,
-                            "invalid capture sizing", resp);
-        return PICOMSO_STATUS_ERR_BAD_LEN;
+    if ((active_streams & PICOMSO_STREAM_SCOPE) != 0u) {
+        if (req.total_samples == 0u ||
+            req.total_samples > scope_max_samples ||
+            req.pre_trigger_samples > req.total_samples) {
+            debug("\n[protocol] REQUEST_CAPTURE rejected reason=invalid_scope_capture_sizing samples=%lu pre=%lu max=%lu",
+                  (unsigned long)req.total_samples,
+                  (unsigned long)req.pre_trigger_samples,
+                  (unsigned long)scope_max_samples);
+            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN,
+                                "invalid scope capture sizing", resp);
+            return PICOMSO_STATUS_ERR_BAD_LEN;
+        }
     }
 
     for (i = 0u; i < PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT; ++i) {
@@ -454,13 +505,31 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     capture_config.total_samples = req.total_samples;
     capture_config.pre_trigger_samples = req.pre_trigger_samples;
 
+    mixed_capture_reset_tracking();
     capture_controller_set_state(&s_capture_ctrl, CAPTURE_RUNNING);
 
-    capture_started = (active_streams == PICOMSO_STREAM_LOGIC)
-        ? logic_capture_start(&capture_config, logic_capture_complete_handler)
-        : scope_capture_start(&capture_config, scope_capture_complete_handler);
+    if (active_streams == PICOMSO_STREAM_LOGIC) {
+        capture_started = logic_capture_start(&capture_config, logic_capture_complete_handler);
+    } else if (active_streams == PICOMSO_STREAM_SCOPE) {
+        capture_started = scope_capture_start(&capture_config, scope_capture_complete_handler);
+    } else if (stream_mask_is_mixed(active_streams)) {
+        bool logic_started;
+        bool scope_started;
+
+        logic_started = logic_capture_start(&capture_config, logic_capture_complete_handler);
+        scope_started = scope_capture_start(&capture_config, scope_capture_complete_handler);
+        capture_started = logic_started && scope_started;
+
+        if (!capture_started) {
+            if (logic_started)
+                logic_capture_reset();
+            if (scope_started)
+                scope_capture_reset();
+        }
+    }
 
     if (!capture_started) {
+        mixed_capture_reset_tracking();
         capture_controller_set_state(&s_capture_ctrl, CAPTURE_IDLE);
         debug("\n[protocol] REQUEST_CAPTURE start_failed backend=%s state=%s",
               stream_name(active_streams),
@@ -484,9 +553,8 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
  * Returns one fixed-size chunk from the completed stored capture.
  * No acquisition runs in this handler; it only reads from finalized storage.
  *
- * For now, only single-stream operation is supported, but each returned
- * block already carries an explicit stream_id for forward-compatible mixed
- * mode parsing on the host.
+ * In mixed mode, this minimal implementation alternates between logic and
+ * scope streams and relies on per-block stream_id for host-side parsing.
  * ----------------------------------------------------------------------- */
 
 picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *hdr,
@@ -494,33 +562,27 @@ picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *h
                                                 picomso_response_t *resp)
 {
     uint8_t active_streams;
-    bool read_ok;
+    bool read_ok = false;
     picomso_data_block_response_t blk;
     uint16_t block_id;
     uint16_t data_len;
     uint16_t payload_len;
-    capture_state_t backend_state;
+    bool try_logic_first;
 
     (void)payload;
 
     active_streams = capture_controller_get_streams(&s_capture_ctrl);
 
-    debug("\n[protocol] READ_DATA_BLOCK request streams=%s state=%s",
+    debug("\n[protocol] READ_DATA_BLOCK request streams=%s state=%s logic_done=%u scope_done=%u",
           stream_name(active_streams),
-          capture_state_name(capture_controller_get_state(&s_capture_ctrl)));
+          capture_state_name(capture_controller_get_state(&s_capture_ctrl)),
+          s_logic_capture_done ? 1u : 0u,
+          s_scope_capture_done ? 1u : 0u);
 
     if (active_streams == PICOMSO_STREAM_NONE) {
         debug("\n[protocol] READ_DATA_BLOCK rejected reason=no_active_stream");
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE,
                             "capture stream not active", resp);
-        return PICOMSO_STATUS_ERR_BAD_MODE;
-    }
-
-    if (stream_mask_is_mixed(active_streams)) {
-        debug("\n[protocol] READ_DATA_BLOCK rejected reason=mixed_streams streams=%s",
-              stream_name(active_streams));
-        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_MODE,
-                            "mixed stream combination not supported yet", resp);
         return PICOMSO_STATUS_ERR_BAD_MODE;
     }
 
@@ -531,14 +593,32 @@ picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *h
     if (active_streams == PICOMSO_STREAM_LOGIC) {
         blk.stream_id = PICOMSO_STREAM_ID_LOGIC;
         read_ok = logic_capture_read_block(&block_id, blk.data, &data_len);
-        backend_state = logic_capture_get_state();
-        capture_controller_set_state(&s_capture_ctrl, backend_state);
-    } else {
+    } else if (active_streams == PICOMSO_STREAM_SCOPE) {
         blk.stream_id = PICOMSO_STREAM_ID_SCOPE;
         read_ok = scope_capture_read_block(&block_id, blk.data, &data_len);
-        backend_state = scope_capture_get_state();
-        capture_controller_set_state(&s_capture_ctrl, backend_state);
+    } else {
+        try_logic_first = s_mixed_read_prefer_logic;
+
+        if (try_logic_first) {
+            blk.stream_id = PICOMSO_STREAM_ID_LOGIC;
+            read_ok = logic_capture_read_block(&block_id, blk.data, &data_len);
+            if (!read_ok) {
+                blk.stream_id = PICOMSO_STREAM_ID_SCOPE;
+                read_ok = scope_capture_read_block(&block_id, blk.data, &data_len);
+            }
+        } else {
+            blk.stream_id = PICOMSO_STREAM_ID_SCOPE;
+            read_ok = scope_capture_read_block(&block_id, blk.data, &data_len);
+            if (!read_ok) {
+                blk.stream_id = PICOMSO_STREAM_ID_LOGIC;
+                read_ok = logic_capture_read_block(&block_id, blk.data, &data_len);
+            }
+        }
+
+        s_mixed_read_prefer_logic = !s_mixed_read_prefer_logic;
     }
+
+    update_controller_state_from_backends(active_streams);
 
     if (!read_ok) {
         debug("\n[protocol] READ_DATA_BLOCK no_data backend=%s state=%s",
@@ -560,11 +640,10 @@ picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *h
         sizeof(blk.data_len) +
         blk.data_len);
 
-    debug("\n[protocol] READ_DATA_BLOCK result backend=%s block=%u data_len=%u backend_state=%s ctrl_state=%s",
-          stream_name(active_streams),
+    debug("\n[protocol] READ_DATA_BLOCK result stream_id=%u block=%u data_len=%u ctrl_state=%s",
+          blk.stream_id,
           block_id,
           data_len,
-          capture_state_name(backend_state),
           capture_state_name(capture_controller_get_state(&s_capture_ctrl)));
 
     build_response(hdr, PICOMSO_MSG_DATA_BLOCK, &blk, payload_len, resp);

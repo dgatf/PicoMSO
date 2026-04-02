@@ -41,6 +41,8 @@
 #define GPIO_COUPLING_CH2_DC 21
 #define GPIO_CALIBRATION 22
 
+#define SCOPE_CAPTURE_MAX_REAL_RATE 2083333u
+
 typedef enum scope_capture_phase_t {
     SCOPE_CAPTURE_PHASE_DISARMED = 0,
     SCOPE_CAPTURE_PHASE_CAPTURING,
@@ -200,7 +202,7 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
     channel_config_set_write_increment(&channel_config_adc_post, true);
     channel_config_set_read_increment(&channel_config_adc_post, false);
     channel_config_set_dreq(&channel_config_adc_post, DREQ_ADC);
-    dma_channel_set_irq0_enabled(dma_channel_adc_post_, true);  // raise an interrupt when completed
+    dma_channel_set_irq1_enabled(dma_channel_adc_post_, true);  // raise an interrupt when completed
     dma_channel_configure(dma_channel_adc_post_, &channel_config_adc_post,
                           &post_trigger_buffer_,  // write address
                           &adc_hw->fifo,          // read address
@@ -225,8 +227,8 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
                           &dma_hw->abort,  // write address
                           &dma_post_,      // read address
                           1, false);
-    irq_set_exclusive_handler(DMA_IRQ_0, complete_handler);
-    irq_set_enabled(DMA_IRQ_0, true);
+    irq_set_exclusive_handler(DMA_IRQ_1, complete_handler);
+    irq_set_enabled(DMA_IRQ_1, true);
 
     adc_set_round_robin(s_scope_capture_config.channels);
 
@@ -246,12 +248,28 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
 }
 
 uint16_t scope_capture_get_sample_index(int index) {
+    const uint32_t max_scope_rate = SCOPE_CAPTURE_MAX_REAL_RATE;
     uint total_samples = pre_trigger_count_ + post_trigger_samples_;
+    uint logical_index;
+    uint physical_index;
 
-    if (index < 0 || (uint)index >= total_samples) return 0;
+    if (index < 0 || (uint)index >= total_samples)
+        return 0;
 
-    if ((uint)index < pre_trigger_count_) {
-        int pos = pre_trigger_first_ + index;
+    logical_index = (uint)index;
+
+    if (rate_ > max_scope_rate) {
+        uint64_t scaled = (uint64_t)logical_index * (uint64_t)max_scope_rate;
+        physical_index = (uint)(scaled / (uint64_t)rate_);
+
+        if (physical_index >= total_samples)
+            physical_index = total_samples - 1u;
+    } else {
+        physical_index = logical_index;
+    }
+
+    if (physical_index < pre_trigger_count_) {
+        int pos = pre_trigger_first_ + (int)physical_index;
 
         if (pos < 0)
             pos += PRE_TRIGGER_BUFFER_SIZE;
@@ -261,7 +279,7 @@ uint16_t scope_capture_get_sample_index(int index) {
         return pre_trigger_buffer_[pos];
     }
 
-    return post_trigger_buffer_[index - (int)pre_trigger_count_];
+    return post_trigger_buffer_[physical_index - pre_trigger_count_];
 }
 
 capture_state_t scope_capture_get_state(void) {
@@ -398,6 +416,8 @@ static inline void complete_handler(void) {
 }
 
 static inline void capture_stop(void) {
+    adc_run(false);
+    adc_fifo_drain();
     dma_channel_abort(dma_channel_adc_);
     dma_channel_abort(dma_channel_adc_post_);
     dma_channel_abort(dma_channel_reload_adc_counter_);
