@@ -65,7 +65,7 @@ static scope_capture_phase_t s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
 static uint32_t s_capture_read_offset_bytes = 0u;
 
 static const uint dma_channel_adc_ = 7, dma_channel_adc_post_ = 8, dma_channel_reload_adc_counter_ = 9,
-                  dma_channel_dma_pre_ = 10, dma_channel_dma_post_ = 11, reload_counter_ = 0xffffffffu;
+                  dma_channel_dma_pre_ = 10, dma_channel_dma_post_ = 11, reload_counter_ = PRE_TRIGGER_RING_TRANSFER_COUNT;
 static uint slice_num_;
 static uint16_t pre_trigger_buffer_[PRE_TRIGGER_BUFFER_SIZE]
     __attribute__((aligned(PRE_TRIGGER_BUFFER_SIZE * sizeof(uint16_t)))),
@@ -194,7 +194,7 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
     dma_channel_configure(dma_channel_adc_, &channel_config_adc,
                           &pre_trigger_buffer_,  // write address
                           &adc_hw->fifo,         // read address
-                          0xffffffffu, false);
+                          PRE_TRIGGER_RING_TRANSFER_COUNT, false);
 
     // DMA channel ADC post
     dma_channel_config channel_config_adc_post = dma_channel_get_default_config(dma_channel_adc_post_);
