@@ -9,14 +9,13 @@ and oscilloscope functionality in a single firmware and host integration stack.
 
 - **Channels:** 16 digital channels
 - **Maximum sample rate:** up to **200 MHz**
-- **Capture depth:** up to **100K samples**
+- **Capture depth:** up to **50K samples**
 - **Pre-trigger buffer:** up to **1K samples**
 - **Trigger support:** level and edge trigger support
-- **Compression:** RLE support
 
 ### Oscilloscope
 
-- **Channels:** 2 analog channels
+- **Channels:** 1 analog channel
 - **Maximum sample rate:** up to **2 MS/s**
 
 ## PulseView example
