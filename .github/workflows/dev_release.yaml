@@ -31,14 +31,14 @@ jobs:
       - name: Build firmware
         uses: samyarsadat/Pico-Build-Action@v1
         with:
-          source_dir: "src"
-          output_dir: "../build"
+          source_dir: "firmware/app"
+          output_dir: "build/picomso"
           cmake_args: "-DCMAKE_BUILD_TYPE=Release"
 
       - name: Prepare artifact
         run: |
           mkdir -p dist
-          cp build/picomso.uf2 dist/picomso.uf2
+          cp build/picomso/picomso.uf2 dist/picomso.uf2
 
       - name: Generate attestation
         uses: actions/attest-build-provenance@v3
