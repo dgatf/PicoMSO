@@ -24,7 +24,7 @@ jobs:
           fetch-depth: 0
 
       - name: Git tags
-        run: git fetch --prune --unshallow
+        run: git fetch --prune
 
       - name: Build firmware
         uses: samyarsadat/Pico-Build-Action@v1
