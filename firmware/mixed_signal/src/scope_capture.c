@@ -62,8 +62,8 @@ static capture_config_t s_scope_capture_config = {.total_samples = 0u,
 static scope_capture_phase_t s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
 static uint32_t s_capture_read_offset_bytes = 0u;
 
-static const uint dma_channel_adc_ = 4, dma_channel_adc_post_ = 8, dma_channel_reload_adc_counter_ = 5,
-                  dma_channel_dma_pre_ = 6, dma_channel_dma_post_ = 7, reload_counter_ = 0xffffffffu;
+static const uint dma_channel_adc_ = 7, dma_channel_adc_post_ = 8, dma_channel_reload_adc_counter_ = 9,
+                  dma_channel_dma_pre_ = 10, dma_channel_dma_post_ = 11, reload_counter_ = 0xffffffffu;
 static uint slice_num_;
 static uint16_t pre_trigger_buffer_[PRE_TRIGGER_BUFFER_SIZE]
     __attribute__((aligned(PRE_TRIGGER_BUFFER_SIZE * sizeof(uint16_t)))),

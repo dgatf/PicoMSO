@@ -35,7 +35,7 @@
 #define PRE_TRIGGER_BUFFER_SIZE (1 << PRE_TRIGGER_RING_BITS)
 #define PRE_TRIGGER_RING_TRANSFER_COUNT ((0xffffffffu / PRE_TRIGGER_BUFFER_SIZE) * PRE_TRIGGER_BUFFER_SIZE)
 #define POST_TRIGGER_BUFFER_SIZE 10000
-#define MAX_TRIGGER_COUNT 4
+#define MAX_TRIGGER_COUNT 2
 #define RATE_CHANGE_CLK 5000
 
 typedef enum logic_capture_phase_t {
@@ -61,8 +61,8 @@ static uint32_t s_capture_read_offset_bytes = 0u;
 
 static const uint sm_pre_trigger_ = 0, sm_post_trigger_ = 1, sm_mux_ = 3, dma_channel_pre_trigger_ = 0,
                   dma_channel_post_trigger_ = 1, dma_channel_pio0_ctrl_ = 2, dma_channel_pio1_ctrl_ = 3,
-                  dma_channel_reload_pre_trigger_counter_ = 4, dma_channel_trigger_[MAX_TRIGGER_COUNT] = {5, 6, 7, 8},
-                  sm_trigger_[MAX_TRIGGER_COUNT] = {0, 1, 2, 3}, reload_counter_ = PRE_TRIGGER_RING_TRANSFER_COUNT;
+                  dma_channel_reload_pre_trigger_counter_ = 4, dma_channel_trigger_[MAX_TRIGGER_COUNT] = {5, 6},
+                  sm_trigger_[MAX_TRIGGER_COUNT] = {0, 1}, reload_counter_ = PRE_TRIGGER_RING_TRANSFER_COUNT;
 static uint offset_pre_trigger_, offset_post_trigger_, pre_trigger_samples_, post_trigger_samples_,
     pin_count_ = LOGIC_CAPTURE_CHANNELS, trigger_count_, sm_trigger_mask_, trigger_mask_, pin_base_, rate_, offset_mux_,
     offset_trigger_[MAX_TRIGGER_COUNT];
@@ -75,7 +75,7 @@ static uint16_t pre_trigger_buffer_[PRE_TRIGGER_BUFFER_SIZE]
     post_trigger_buffer_[POST_TRIGGER_BUFFER_SIZE];
 static pio_sm_config pio_config_trigger_[MAX_TRIGGER_COUNT], pio_config_pre_trigger_, pio_config_post_trigger_,
     pio_config_mux_;
-static const uint triggered_channel_index_[4] = {0, 1, 2, 3};
+static const uint triggered_channel_index_[MAX_TRIGGER_COUNT] = {0, 1};
 
 static void (*handler_)(void) = NULL;
 

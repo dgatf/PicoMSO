@@ -92,7 +92,8 @@ int main(void)
     stdio_init_all();
     set_pin_config();
     debug_init(115200, &debug_message_[0], &debug_);
-
+    debug("\nPicoMSO firmware starting...");
+    
     /*
      * Step 1: Initialise the USB hardware.
      *
