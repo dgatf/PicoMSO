@@ -217,14 +217,14 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
     channel_config_set_dreq(&config_dma_channel_dma_pre, pio_get_dreq(pio0, logic_capture_get_sm_mux(), false));
     channel_config_set_chain_to(&config_dma_channel_dma_pre, dma_channel_dma_post_);
     dma_channel_configure(dma_channel_dma_pre_, &config_dma_channel_dma_pre,
-                          &dma_hw->multi_channel_trigger,  // write address
+                          &dma_hw->abort,  // write address
                           &dma_pre_,                       // read address
-                          1, false);
+                          1, true);
     channel_config_set_transfer_data_size(&config_dma_channel_dma_post, DMA_SIZE_32);
     channel_config_set_write_increment(&config_dma_channel_dma_post, false);
     channel_config_set_read_increment(&config_dma_channel_dma_post, false);
     dma_channel_configure(dma_channel_dma_post_, &config_dma_channel_dma_post,
-                          &dma_hw->abort,  // write address
+                          &dma_hw->multi_channel_trigger,  // write address
                           &dma_post_,      // read address
                           1, false);
     irq_set_exclusive_handler(DMA_IRQ_1, complete_handler);
@@ -388,7 +388,7 @@ static void scope_capture_configure_adc(void) {
 uint scope_capture_get_samples_count(void) { return pre_trigger_count_ + post_trigger_samples_; }
 
 static inline void complete_handler(void) {
-    dma_hw->ints0 = 1u << dma_channel_adc_post_;
+    dma_hw->ints1 = 1u << dma_channel_adc_post_;
     if (s_phase == SCOPE_CAPTURE_PHASE_CAPTURING) {
         // Set pre trigger range
         pre_trigger_first_ = 0;
