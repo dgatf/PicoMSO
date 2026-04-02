@@ -17,6 +17,10 @@ single authoritative copy.
 - `debug_block(fmt, ...)` – formatted output with TX-drain wait
 - `debug_is_enabled()` – query current debug state
 
+Shared modules that use these helpers now follow grep-friendly prefixes such as
+`[protocol]`, `[logic]`, `[scope]`, and `[capture_ctrl]` so capture flow and
+state transitions can be correlated across modules.
+
 Pin assignments (both projects):
 
 | Constant             | GPIO | Purpose               |
@@ -34,6 +38,13 @@ Shared type definitions:
 - `trigger_t` – single-channel trigger configuration
 - `capture_config_t` – logic-analyzer capture parameters
 
+### `include/capture_controller.h` + `src/capture_controller.c`
+
+Shared stream/state controller used by the protocol layer.
+
+- tracks the active stream bitmask and capture state
+- logs stream changes and state transitions with the `[capture_ctrl]` prefix
+
 ## CMake Usage
 
 Each project adds this directory as a subdirectory and links against
@@ -49,4 +60,3 @@ target_link_libraries(my_target picomso_common)
 Extract code here only when it is **clearly identical or near-identical** across
 both projects and carries no device-specific behaviour. See
 `docs/architecture.md` for details on what remains project-specific and why.
-

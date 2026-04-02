@@ -79,7 +79,8 @@ static void scope_capture_configure_adc(void);
 static inline void complete_handler(void);
 static inline void capture_stop(void);
 
-static const char *scope_capture_phase_name(scope_capture_phase_t phase) {
+static const char *scope_capture_phase_name(scope_capture_phase_t phase)
+{
     switch (phase) {
         case SCOPE_CAPTURE_PHASE_DISARMED:
             return "DISARMED";

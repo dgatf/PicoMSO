@@ -85,7 +85,8 @@ static inline bool set_trigger(trigger_t trigger);
 static inline void capture_complete_handler(void);
 static inline void capture_stop(void);
 
-static const char *logic_capture_phase_name(logic_capture_phase_t phase) {
+static const char *logic_capture_phase_name(logic_capture_phase_t phase)
+{
     switch (phase) {
         case LOGIC_CAPTURE_PHASE_DISARMED:
             return "DISARMED";

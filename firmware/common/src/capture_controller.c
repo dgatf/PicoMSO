@@ -52,9 +52,6 @@ void capture_controller_init(capture_controller_t *ctrl)
 {
     ctrl->streams_enabled = PICOMSO_STREAM_NONE;
     ctrl->state = CAPTURE_IDLE;
-    debug("\n[capture_ctrl] init streams=%s state=%s",
-          stream_name(ctrl->streams_enabled),
-          capture_state_name(ctrl->state));
 }
 
 void capture_controller_set_streams(capture_controller_t *ctrl, uint8_t streams)
