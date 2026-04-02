@@ -51,3 +51,13 @@ See:
 - [`docs/building.md`](docs/building.md)
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/protocol.md`](docs/protocol.md)
+
+## libsigrok support
+
+Until PicoMSO support is merged upstream, users need to build and install the
+PicoMSO fork of `libsigrok` manually. Please follow the [official sigrok build
+instructions](https://sigrok.org/wiki/Building) and apply them to the PicoMSO
+fork repository: [`https://github.com/dgatf/libsigrok`](https://github.com/dgatf/libsigrok).
+
+The sigrok documentation covers the required dependencies, general build flow,
+and platform-specific notes for building from source.
