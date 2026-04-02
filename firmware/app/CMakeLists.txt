@@ -1,18 +1,17 @@
-# PicoMSO USB control-plane example
+# PicoMSO firmware application
 #
-# Standalone Pico SDK project that demonstrates connecting the USB
-# transport backend to the integration layer.
+# Standalone Pico SDK project for the current PicoMSO firmware path.
 #
 # Build (from the repository root):
 #
 #   git submodule update --init --recursive
-#   cmake -S firmware/examples/usb_control_plane \
-#         -B build/usb_control_plane
-#   cmake --build build/usb_control_plane
+#   cmake -S firmware/app \
+#         -B build/picomso
+#   cmake --build build/picomso
 #
 # Produces:
-#   build/usb_control_plane/picomso_usb_control_plane.elf
-#   build/usb_control_plane/picomso_usb_control_plane.uf2
+#   build/picomso/picomso.elf
+#   build/picomso/picomso.uf2
 
 cmake_minimum_required(VERSION 3.12)
 

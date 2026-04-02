@@ -1,11 +1,15 @@
-# PicoMSO Firmware Transition Area
+# firmware
 
-This directory is the shared destination for future PicoMSO firmware modules.
+Current PicoMSO firmware implementation.
 
-The existing imported projects still live at the repository top level:
+## Layout
 
-- `logic_analyzer_rp2040/`
-- `oscilloscope_rp2040/`
+- `app/` - Pico SDK application entry point
+- `common/` - shared runtime support
+- `integration/` - transport/protocol glue
+- `mixed_signal/` - logic and scope capture backends
+- `protocol/` - packet definitions and dispatch
+- `transport/` - transport abstraction and USB backend
 
-Those source trees remain the active firmware builds during the early transition. The folders in this directory are intentionally empty of moved source code until dependency boundaries are clear enough to refactor safely.
-
+`firmware/app/` is the current build entry point. The other directories provide
+libraries linked by that application.
