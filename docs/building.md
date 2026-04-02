@@ -1,96 +1,58 @@
 # Building
 
-## Pico SDK
+## Pico SDK submodule
 
-This repository includes the Pico SDK as a Git submodule at:
+The firmware build uses the Pico SDK submodule at:
 
 ```text
 external/pico-sdk
 ```
 
-Before building, initialize the submodule from the repository root:
+Initialize submodules before configuring the build:
 
 ```bash
 git submodule update --init --recursive
 ```
 
-The `firmware/examples/usb_control_plane/` project uses this submodule directly
-and no longer depends on `PICO_SDK_PATH`.
+## Current firmware build
 
----
+The current PicoMSO application entry point is `firmware/app/`.
 
-## Firmware Build Entry Points
-
-Both firmware projects build from their own source trees. Each one pulls in
-`firmware/common/` as a CMake subdirectory, so no separate step is required to
-build the shared library first.
-
-### Logic Analyzer
+Build from the repository root:
 
 ```bash
-cmake -S logic_analyzer_rp2040/src -B build/logic_analyzer
-cmake --build build/logic_analyzer
+cmake -S firmware/app -B build/picomso
+cmake --build build/picomso
 ```
 
-Produces `build/logic_analyzer/logic_analyzer.elf` and
-`build/logic_analyzer/logic_analyzer.uf2`.
+Primary outputs:
 
-### Oscilloscope
+- `build/picomso/picomso.elf`
+- `build/picomso/picomso.uf2`
 
-```bash
-cmake -S oscilloscope_rp2040/src -B build/oscilloscope
-cmake --build build/oscilloscope
-```
+## Firmware libraries
 
-Produces `build/oscilloscope/oscilloscope.elf` and
-`build/oscilloscope/oscilloscope.uf2`.
+`firmware/app/CMakeLists.txt` adds these directories as subprojects:
 
----
+- `firmware/common/`
+- `firmware/mixed_signal/`
+- `firmware/protocol/`
+- `firmware/transport/`
+- `firmware/integration/`
 
-## Shared Library (`firmware/common`)
+These directories are libraries used by the application build. They are not
+documented as standalone firmware entry points.
 
-`firmware/common/` is included automatically by both project builds via:
+`firmware/CMakeLists.txt` collects the same libraries, but it is not a complete
+top-level build on its own because the Pico SDK must already be initialized by a
+parent project.
 
-```cmake
-add_subdirectory(../../firmware/common ${CMAKE_BINARY_DIR}/picomso_common)
-```
+## Hardware validation
 
-It is **not** intended to be built standalone because it depends on Pico SDK
-targets (`pico_stdlib`, `hardware_uart`, `hardware_gpio`) that are only
-available once `pico_sdk_init()` has been called by a project build.
+`utils/usb_test.py` is a standalone hardware-facing validation script. It
+requires:
 
-The placeholder `firmware/protocol/` and `firmware/mixed_signal/` subdirectories
-remain INTERFACE-only libraries reserved for future use.
+- Python with `pyusb`
+- a connected PicoMSO device
 
----
-
-## USB Control-Plane Example (`firmware/examples/usb_control_plane/`)
-
-A minimal, self-contained Pico SDK project that shows the complete wiring
-of USB transport → integration → protocol → capture_controller.
-
-This example uses the Pico SDK submodule at `external/pico-sdk`.
-
-```bash
-git submodule update --init --recursive
-cmake -S firmware/examples/usb_control_plane \
-      -B build/usb_control_plane
-cmake --build build/usb_control_plane
-```
-
-Produces:
-
-- `build/usb_control_plane/picomso_usb_control_plane.elf`
-- `build/usb_control_plane/picomso_usb_control_plane.uf2`
-
-Commands handled: `GET_INFO`, `GET_CAPABILITIES`, `GET_STATUS`, `SET_MODE`.
-Capture data streaming is **not** implemented in this example.
-
----
-
-## Migration Guidance
-
-- Code in `firmware/common/` is real, shared, Pico SDK-dependent source
-- Both project builds link against `picomso_common` and inherit its include paths
-- Add to `firmware/common/` only when code is clearly identical across both projects
-- Protocol handlers, capture backends, and transport layers remain project-specific
+The repository does not include a separate automated documentation test suite.
