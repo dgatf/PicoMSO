@@ -516,8 +516,8 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         bool logic_started;
         bool scope_started;
 
-        logic_started = logic_capture_start(&capture_config, logic_capture_complete_handler);
         scope_started = scope_capture_start(&capture_config, scope_capture_complete_handler);
+        logic_started = logic_capture_start(&capture_config, logic_capture_complete_handler);
         capture_started = logic_started && scope_started;
 
         if (!capture_started) {
