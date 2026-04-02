@@ -79,7 +79,27 @@ static void scope_capture_configure_adc(void);
 static inline void complete_handler(void);
 static inline void capture_stop(void);
 
+static const char *scope_capture_phase_name(scope_capture_phase_t phase)
+{
+    switch (phase) {
+        case SCOPE_CAPTURE_PHASE_DISARMED:
+            return "DISARMED";
+        case SCOPE_CAPTURE_PHASE_CAPTURING:
+            return "CAPTURING";
+        case SCOPE_CAPTURE_PHASE_ABORTING:
+            return "ABORTING";
+        case SCOPE_CAPTURE_PHASE_FINALIZED:
+            return "FINALIZED";
+        default:
+            return "UNKNOWN";
+    }
+}
+
 void scope_capture_reset(void) {
+    debug("\n[scope] reset begin phase=%s total_samples=%lu read_offset=%lu",
+          scope_capture_phase_name(s_phase),
+          (unsigned long)s_scope_capture_config.total_samples,
+          (unsigned long)s_capture_read_offset_bytes);
     if (s_phase == SCOPE_CAPTURE_PHASE_CAPTURING) {
         s_phase = SCOPE_CAPTURE_PHASE_ABORTING;
         capture_stop();
@@ -93,18 +113,26 @@ void scope_capture_reset(void) {
     pre_trigger_count_ = 0u;
     pre_trigger_first_ = 0;
     s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
+    debug("\n[scope] reset done phase=%s", scope_capture_phase_name(s_phase));
 }
 
 bool scope_capture_start(const capture_config_t *config, complete_handler_t handler) {
     if (config == NULL || handler == NULL) {
+        debug("\n[scope] start rejected reason=bad_args config=%u handler=%u",
+              config != NULL, handler != NULL);
         return false;
     }
 
     if (config->total_samples == 0u || config->total_samples > SCOPE_CAPTURE_MAX_SAMPLES) {
+        debug("\n[scope] start rejected reason=invalid_total_samples samples=%lu max=%u",
+              (unsigned long)config->total_samples, SCOPE_CAPTURE_MAX_SAMPLES);
         return false;
     }
 
     if (config->pre_trigger_samples > config->total_samples) {
+        debug("\n[scope] start rejected reason=pre_gt_total pre=%lu samples=%lu",
+              (unsigned long)config->pre_trigger_samples,
+              (unsigned long)config->total_samples);
         return false;
     }
 
@@ -115,6 +143,14 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
     uint32_t samples = config->total_samples;
     uint32_t rate = config->rate;
     uint32_t pre_trigger_samples = config->pre_trigger_samples;
+
+    debug("\n[scope] start request phase=%s samples=%lu rate=%lu pre=%lu logic_triggers=%u",
+          scope_capture_phase_name(s_phase),
+          (unsigned long)samples,
+          (unsigned long)rate,
+          (unsigned long)pre_trigger_samples,
+          logic_capture_get_trigger_count());
+
     scope_capture_configure_adc();
     s_phase = SCOPE_CAPTURE_PHASE_CAPTURING;
     pre_trigger_samples_ = pre_trigger_samples;
@@ -202,6 +238,10 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
 
     adc_run(true);
 
+    debug("\n[scope] start armed phase=%s samples=%u rate=%u pre=%u post=%u logic_triggers=%u",
+          scope_capture_phase_name(s_phase), s_scope_capture_config.total_samples,
+          rate_, pre_trigger_samples_, post_trigger_samples_, logic_capture_get_trigger_count());
+
     return true;
 }
 
@@ -238,14 +278,19 @@ bool scope_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_
     uint16_t chunk_bytes;
 
     if (block_id == NULL || data == NULL || data_len == NULL) {
+        debug("\n[scope] read rejected reason=bad_args");
         return false;
     }
 
     if (s_phase != SCOPE_CAPTURE_PHASE_FINALIZED) {
+        debug("\n[scope] read rejected reason=not_finalized phase=%s",
+              scope_capture_phase_name(s_phase));
         return false;
     }
 
     if (s_capture_read_offset_bytes >= total_bytes) {
+        debug("\n[scope] read drained total_bytes=%lu",
+              (unsigned long)total_bytes);
         return false;
     }
 
@@ -262,6 +307,10 @@ bool scope_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_
     *block_id = (uint16_t)(s_capture_read_offset_bytes / SCOPE_CAPTURE_BLOCK_BYTES);
     *data_len = chunk_bytes;
     s_capture_read_offset_bytes += chunk_bytes;
+
+    debug("\n[scope] read result block=%u data_len=%u next_offset=%lu pending=%s",
+          *block_id, *data_len, (unsigned long)s_capture_read_offset_bytes,
+          s_capture_read_offset_bytes < total_bytes ? "yes" : "no");
 
     return true;
 }
@@ -293,7 +342,8 @@ void oscilloscope_set_samplerate(uint samplerate) {
         clk_div = clock_get_hz(clk_usb) / samplerate;
         *clk_adc_ctrl = 0x800;  // clk_usb
     }
-    debug("\nSet samplerate (clk div: %.2f): %u", clk_div, samplerate);
+    debug("\n[scope] samplerate configured clk_div=%.2f rate=%u source=%s",
+          clk_div, samplerate, samplerate > 500e3 ? "clk_sys" : "clk_usb");
     adc_set_clkdiv(clk_div);
 }
 
@@ -336,9 +386,14 @@ static inline void complete_handler(void) {
         }
         capture_stop();
         s_phase = SCOPE_CAPTURE_PHASE_FINALIZED;
+        debug("\n[scope] complete phase=%s pre_count=%u post_count=%u total_samples=%u pending_bytes=%lu",
+              scope_capture_phase_name(s_phase), pre_trigger_count_, post_trigger_samples_,
+              pre_trigger_count_ + post_trigger_samples_,
+              (unsigned long)(scope_capture_get_samples_count() * sizeof(uint16_t)));
         if (handler_) handler_();
     } else {
         s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
+        debug("\n[scope] complete ignored phase=%s", scope_capture_phase_name(s_phase));
     }
 }
 

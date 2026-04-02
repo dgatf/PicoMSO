@@ -17,6 +17,18 @@ Current scope is intentionally narrow:
 - circular pre-trigger buffering and trigger detection for the logic path
 - finite oscilloscope acquisition without a separate analog-trigger algorithm
 
+## Debug logging
+
+The capture backends now emit structured traces to match the protocol layer:
+
+- `[logic]` logs reset, request validation, clock setup, trigger setup, arm,
+  trigger firing, completion, block reads, and drain state
+- `[scope]` logs reset, request validation, samplerate selection, arm,
+  completion, block reads, and drain state
+
+These logs are intended to make mode switches and capture lifecycles visible
+end-to-end, from backend start through finalized readout exhaustion.
+
 Still out of scope here:
 
 - mixed-signal unification
