@@ -27,6 +27,7 @@
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
 #include "pico/stdlib.h"
+#include "capture_controller.h"
 
 #define LOGIC_CAPTURE_CHANNELS 16u
 #define LOGIC_CAPTURE_TRIGGER_TIMEOUT_SPINS 4096u
@@ -35,7 +36,7 @@
 #define PRE_TRIGGER_BUFFER_SIZE (1 << PRE_TRIGGER_RING_BITS)
 #define POST_TRIGGER_BUFFER_SIZE 50000
 #define PRE_TRIGGER_RING_TRANSFER_COUNT ((0xffffffffu / PRE_TRIGGER_BUFFER_SIZE) * PRE_TRIGGER_BUFFER_SIZE)
-#define MAX_TRIGGER_COUNT 2
+#define LOGIC_CAPTURE_MAX_TRIGGER_COUNT 2u
 #define RATE_CHANGE_CLK 5000
 
 typedef enum logic_capture_phase_t {
@@ -67,13 +68,13 @@ static const uint sm_pre_trigger_ = 0,
                   dma_arm_post_trigger_ = 2,
                   dma_stop_trigger_path_ = 3,
                   dma_pre_trigger_reload_ = 4,
-                  dma_trigger_to_mux_[MAX_TRIGGER_COUNT] = {5, 6},
-                  sm_trigger_[MAX_TRIGGER_COUNT] = {0, 1},
+                  dma_trigger_to_mux_[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {5, 6},
+                  sm_trigger_[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {0, 1},
                   reload_counter_ = PRE_TRIGGER_RING_TRANSFER_COUNT;
 
 static uint offset_pre_trigger_, offset_post_trigger_, pre_trigger_samples_, post_trigger_samples_,
     pin_count_ = LOGIC_CAPTURE_CHANNELS, trigger_count_, sm_trigger_mask_, trigger_mask_, pin_base_, rate_, offset_mux_,
-    offset_trigger_[MAX_TRIGGER_COUNT];
+    offset_trigger_[LOGIC_CAPTURE_MAX_TRIGGER_COUNT];
 static volatile uint pre_trigger_count_;
 static volatile int pre_trigger_first_, triggered_channel_;
 static float clk_div_;
@@ -81,9 +82,9 @@ static volatile uint pio0_ctrl_ = (1 << sm_post_trigger_), pio1_ctrl_ = 0;
 static uint16_t pre_trigger_buffer_[PRE_TRIGGER_BUFFER_SIZE]
     __attribute__((aligned(PRE_TRIGGER_BUFFER_SIZE * sizeof(uint16_t)))),
     post_trigger_buffer_[POST_TRIGGER_BUFFER_SIZE];
-static pio_sm_config pio_config_trigger_[MAX_TRIGGER_COUNT], pio_config_pre_trigger_, pio_config_post_trigger_,
+static pio_sm_config pio_config_trigger_[LOGIC_CAPTURE_MAX_TRIGGER_COUNT], pio_config_pre_trigger_, pio_config_post_trigger_,
     pio_config_mux_;
-static const uint triggered_channel_index_[MAX_TRIGGER_COUNT] = {0, 1};
+static const uint triggered_channel_index_[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {0, 1};
 
 static void (*handler_)(void) = NULL;
 
@@ -313,7 +314,7 @@ bool logic_capture_start(const capture_config_t *config, complete_handler_t hand
     trigger_count_ = 0;
     sm_trigger_mask_ = 0;
     triggered_channel_ = -1;
-    for (uint i = 0; i < MAX_TRIGGER_COUNT; i++) {
+    for (uint i = 0; i < LOGIC_CAPTURE_MAX_TRIGGER_COUNT; i++) {
         if (s_logic_capture_config.trigger[i].is_enabled) {
             if (!set_trigger(s_logic_capture_config.trigger[i])) {
                 debug_block("\n[logic] start rejected reason=trigger_setup_failed index=%u", i);
@@ -440,7 +441,7 @@ capture_state_t logic_capture_get_state(void)
 
 static inline bool set_trigger(trigger_t trigger)
 {
-    if (trigger_count_ < MAX_TRIGGER_COUNT) {
+    if (trigger_count_ < LOGIC_CAPTURE_MAX_TRIGGER_COUNT) {
         switch (trigger.match) {
             case TRIGGER_TYPE_LEVEL_HIGH:
                 offset_trigger_[trigger_count_] = pio_add_program(pio1, &trigger_level_high_program);
