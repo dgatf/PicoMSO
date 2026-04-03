@@ -4,3 +4,4 @@
 [submodule "external/libsigrok"]
 	path = external/libsigrok
 	url = https://github.com/dgatf/libsigrok.git
+	branch = picomso-driver
