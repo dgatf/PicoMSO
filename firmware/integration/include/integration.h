@@ -44,19 +44,20 @@ extern "C" {
 #endif
 
 #include <stddef.h>
-#include "transport.h"
+
 #include "protocol.h"
+#include "transport.h"
 
 /* -----------------------------------------------------------------------
  * Result codes
  * ----------------------------------------------------------------------- */
 
 typedef enum {
-    INTEGRATION_OK          = 0, /**< One packet received, dispatched, sent  */
-    INTEGRATION_ERR_NULL    = 1, /**< Required pointer argument was NULL     */
-    INTEGRATION_ERR_RECV    = 2, /**< Transport receive failed               */
-    INTEGRATION_ERR_SEND    = 3, /**< Transport send failed                  */
-    INTEGRATION_ERR_PROTO   = 4, /**< Protocol layer produced no response    */
+    INTEGRATION_OK = 0,        /**< One packet received, dispatched, sent  */
+    INTEGRATION_ERR_NULL = 1,  /**< Required pointer argument was NULL     */
+    INTEGRATION_ERR_RECV = 2,  /**< Transport receive failed               */
+    INTEGRATION_ERR_SEND = 3,  /**< Transport send failed                  */
+    INTEGRATION_ERR_PROTO = 4, /**< Protocol layer produced no response    */
 } integration_result_t;
 
 /* -----------------------------------------------------------------------
@@ -85,8 +86,7 @@ typedef struct {
  * @return INTEGRATION_OK on success, INTEGRATION_ERR_NULL if any pointer
  *         is NULL.
  */
-integration_result_t integration_init(integration_ctx_t *ctx,
-                                       transport_ctx_t   *transport);
+integration_result_t integration_init(integration_ctx_t *ctx, transport_ctx_t *transport);
 
 /**
  * Process one packet: receive → dispatch → send.

@@ -35,10 +35,10 @@
 #include "capture_controller.h"
 #include "debug.h"
 #include "logic_capture.h"
+#include "mixed_capture.h"
 #include "protocol.h"
 #include "protocol_packets.h"
 #include "scope_capture.h"
-#include "mixed_capture.h"
 
 /* -----------------------------------------------------------------------
  * Firmware identification string returned by GET_INFO.

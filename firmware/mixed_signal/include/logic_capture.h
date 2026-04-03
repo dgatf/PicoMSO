@@ -28,8 +28,8 @@ extern "C" {
 
 #include "types.h"
 
-#define LOGIC_CAPTURE_BLOCK_BYTES  64u
-#define LOGIC_CAPTURE_MAX_SAMPLES  100000u
+#define LOGIC_CAPTURE_BLOCK_BYTES 64u
+#define LOGIC_CAPTURE_MAX_SAMPLES 100000u
 
 typedef void (*complete_handler_t)(void);
 

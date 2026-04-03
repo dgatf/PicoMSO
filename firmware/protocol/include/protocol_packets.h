@@ -6,21 +6,22 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+
 #include "protocol.h"
 
 /* -----------------------------------------------------------------------
  * STREAM DEFINITIONS
  * ----------------------------------------------------------------------- */
 
-#define PICOMSO_STREAM_NONE   UINT8_C(0)
-#define PICOMSO_STREAM_LOGIC  UINT8_C(1 << 0)
-#define PICOMSO_STREAM_SCOPE  UINT8_C(1 << 1)
+#define PICOMSO_STREAM_NONE UINT8_C(0)
+#define PICOMSO_STREAM_LOGIC UINT8_C(1 << 0)
+#define PICOMSO_STREAM_SCOPE UINT8_C(1 << 1)
 
 /* -----------------------------------------------------------------------
  * GET_INFO
  * ----------------------------------------------------------------------- */
 
-#define PICOMSO_INFO_FW_ID_MAX  32u
+#define PICOMSO_INFO_FW_ID_MAX 32u
 
 typedef struct {
     uint8_t protocol_version_major;
@@ -32,8 +33,8 @@ typedef struct {
  * GET_CAPABILITIES
  * ----------------------------------------------------------------------- */
 
-#define PICOMSO_CAP_LOGIC  UINT32_C(1 << 0)
-#define PICOMSO_CAP_SCOPE  UINT32_C(1 << 1)
+#define PICOMSO_CAP_LOGIC UINT32_C(1 << 0)
+#define PICOMSO_CAP_SCOPE UINT32_C(1 << 1)
 
 typedef struct {
     uint32_t capabilities;
@@ -44,7 +45,7 @@ typedef struct {
  * ----------------------------------------------------------------------- */
 
 typedef enum {
-    PICOMSO_CAPTURE_IDLE    = 0x00,
+    PICOMSO_CAPTURE_IDLE = 0x00,
     PICOMSO_CAPTURE_RUNNING = 0x01,
 } picomso_capture_state_t;
 
@@ -65,13 +66,13 @@ typedef struct {
  * REQUEST_CAPTURE
  * ----------------------------------------------------------------------- */
 
-#define PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT  4u
+#define PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT 4u
 
 typedef enum {
-    PICOMSO_TRIGGER_MATCH_LEVEL_LOW  = 0x00,
+    PICOMSO_TRIGGER_MATCH_LEVEL_LOW = 0x00,
     PICOMSO_TRIGGER_MATCH_LEVEL_HIGH = 0x01,
-    PICOMSO_TRIGGER_MATCH_EDGE_LOW   = 0x02,
-    PICOMSO_TRIGGER_MATCH_EDGE_HIGH  = 0x03,
+    PICOMSO_TRIGGER_MATCH_EDGE_LOW = 0x02,
+    PICOMSO_TRIGGER_MATCH_EDGE_HIGH = 0x03,
 } picomso_trigger_match_t;
 
 typedef struct {
@@ -108,11 +109,11 @@ typedef enum {
 } picomso_stream_id_t;
 
 typedef struct {
-    uint8_t  stream_id; /**< picomso_stream_id_t */
-    uint8_t  flags;
-    uint16_t block_id;  /**< 16-bit as agreed */
+    uint8_t stream_id; /**< picomso_stream_id_t */
+    uint8_t flags;
+    uint16_t block_id; /**< 16-bit as agreed */
     uint16_t data_len;
-    uint8_t  data[PICOMSO_DATA_BLOCK_SIZE];
+    uint8_t data[PICOMSO_DATA_BLOCK_SIZE];
 } __attribute__((packed)) picomso_data_block_response_t;
 
 #ifdef __cplusplus
