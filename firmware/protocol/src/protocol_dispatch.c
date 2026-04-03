@@ -74,7 +74,14 @@ static capture_controller_t s_capture_ctrl = {.streams_enabled = PICOMSO_STREAM_
 
 static volatile bool s_logic_capture_done = false;
 static volatile bool s_scope_capture_done = false;
-static bool s_mixed_read_prefer_logic = true;
+
+typedef enum mixed_read_phase_t {
+    MIXED_READ_PHASE_LOGIC = 0,
+    MIXED_READ_PHASE_SCOPE,
+    MIXED_READ_PHASE_DONE
+} mixed_read_phase_t;
+
+static mixed_read_phase_t s_mixed_read_phase = MIXED_READ_PHASE_LOGIC;
 
 static const char *stream_name(uint8_t streams) {
     switch (streams) {
@@ -113,12 +120,25 @@ static uint32_t request_trigger_count(const picomso_request_capture_request_t *r
     return count;
 }
 
-/* -----------------------------------------------------------------------
- * Internal helper: build a full response packet.
- *
- * Copies hdr.seq into the response, sets msg_type to resp_type, and
- * appends payload_len bytes from payload.
- * ----------------------------------------------------------------------- */
+static uint8_t data_block_flags_for_streams(uint8_t streams, bool terminal) {
+    uint8_t flags = 0u;
+
+    if ((streams & PICOMSO_STREAM_LOGIC) != 0u && s_logic_capture_done)
+        flags |= PICOMSO_DATA_BLOCK_FLAG_LOGIC_FINALIZED;
+
+    if ((streams & PICOMSO_STREAM_SCOPE) != 0u && s_scope_capture_done)
+        flags |= PICOMSO_DATA_BLOCK_FLAG_SCOPE_FINALIZED;
+
+    if (terminal) flags |= PICOMSO_DATA_BLOCK_FLAG_TERMINAL;
+
+    return flags;
+}
+
+static uint8_t terminal_stream_id_for_streams(uint8_t streams) {
+    if ((streams & PICOMSO_STREAM_SCOPE) != 0u) return PICOMSO_STREAM_ID_SCOPE;
+
+    return PICOMSO_STREAM_ID_LOGIC;
+}
 
 static void build_response(const picomso_packet_header_t *req_hdr, picomso_msg_type_t resp_type, const void *payload,
                            uint16_t payload_len, picomso_response_t *resp) {
@@ -143,6 +163,28 @@ static void build_response(const picomso_packet_header_t *req_hdr, picomso_msg_t
 
     resp->used = total;
 }
+
+static void build_terminal_data_block(const picomso_packet_header_t *hdr, uint8_t active_streams,
+                                      picomso_response_t *resp) {
+    picomso_data_block_response_t blk;
+
+    memset(&blk, 0, sizeof(blk));
+    blk.stream_id = terminal_stream_id_for_streams(active_streams);
+    blk.flags = data_block_flags_for_streams(active_streams, true);
+    blk.block_id = 0u;
+    blk.data_len = 0u;
+
+    build_response(hdr, PICOMSO_MSG_DATA_BLOCK, &blk,
+                   (uint16_t)(sizeof(blk.stream_id) + sizeof(blk.flags) + sizeof(blk.block_id) + sizeof(blk.data_len)),
+                   resp);
+}
+
+/* -----------------------------------------------------------------------
+ * Internal helper: build a full response packet.
+ *
+ * Copies hdr.seq into the response, sets msg_type to resp_type, and
+ * appends payload_len bytes from payload.
+ * ----------------------------------------------------------------------- */
 
 static bool stream_mask_is_valid(uint8_t streams) {
     const uint8_t valid_mask = PICOMSO_STREAM_LOGIC | PICOMSO_STREAM_SCOPE;
@@ -194,7 +236,7 @@ static void copy_request_triggers(capture_config_t *capture_config, const picoms
 static void mixed_capture_reset_tracking(void) {
     s_logic_capture_done = false;
     s_scope_capture_done = false;
-    s_mixed_read_prefer_logic = true;
+    s_mixed_read_phase = MIXED_READ_PHASE_LOGIC;
 }
 
 static void update_controller_state_from_backends(uint8_t streams) {
@@ -489,7 +531,6 @@ picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *h
     uint16_t block_id;
     uint16_t data_len;
     uint16_t payload_len;
-    bool try_logic_first;
 
     (void)payload;
 
@@ -510,51 +551,89 @@ picomso_status_t picomso_handle_read_data_block(const picomso_packet_header_t *h
     data_len = 0u;
 
     if (active_streams == PICOMSO_STREAM_LOGIC) {
+        if (!s_logic_capture_done) {
+            debug("\n[protocol] READ_DATA_BLOCK rejected reason=logic_not_finalized");
+            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN, "logic capture still running", resp);
+            return PICOMSO_STATUS_ERR_UNKNOWN;
+        }
+
         blk.stream_id = PICOMSO_STREAM_ID_LOGIC;
         read_ok = logic_capture_read_block(&block_id, blk.data, &data_len);
+
+        if (!read_ok) {
+            debug("\n[protocol] READ_DATA_BLOCK terminal stream=logic");
+            build_terminal_data_block(hdr, active_streams, resp);
+            return PICOMSO_STATUS_OK;
+        }
     } else if (active_streams == PICOMSO_STREAM_SCOPE) {
+        if (!s_scope_capture_done) {
+            debug("\n[protocol] READ_DATA_BLOCK rejected reason=scope_not_finalized");
+            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN, "scope capture still running", resp);
+            return PICOMSO_STATUS_ERR_UNKNOWN;
+        }
+
         blk.stream_id = PICOMSO_STREAM_ID_SCOPE;
         read_ok = scope_capture_read_block(&block_id, blk.data, &data_len);
-    } else {
-        try_logic_first = s_mixed_read_prefer_logic;
 
-        if (try_logic_first) {
+        if (!read_ok) {
+            debug("\n[protocol] READ_DATA_BLOCK terminal stream=scope");
+            build_terminal_data_block(hdr, active_streams, resp);
+            return PICOMSO_STATUS_OK;
+        }
+    } else {
+        /*
+         * Mixed-mode contract:
+         * - Readout starts only after both streams are finalized.
+         * - Drain logic fully first.
+         * - Drain scope fully second.
+         * - Finish with a terminal zero-length DATA_BLOCK.
+         */
+        if (!s_logic_capture_done || !s_scope_capture_done) {
+            debug("\n[protocol] READ_DATA_BLOCK rejected reason=mixed_not_finalized logic_done=%u scope_done=%u",
+                  s_logic_capture_done ? 1u : 0u, s_scope_capture_done ? 1u : 0u);
+            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN, "mixed capture not finalized", resp);
+            return PICOMSO_STATUS_ERR_UNKNOWN;
+        }
+
+        if (s_mixed_read_phase == MIXED_READ_PHASE_LOGIC) {
             blk.stream_id = PICOMSO_STREAM_ID_LOGIC;
             read_ok = logic_capture_read_block(&block_id, blk.data, &data_len);
+
             if (!read_ok) {
+                s_mixed_read_phase = MIXED_READ_PHASE_SCOPE;
                 blk.stream_id = PICOMSO_STREAM_ID_SCOPE;
                 read_ok = scope_capture_read_block(&block_id, blk.data, &data_len);
             }
-        } else {
+        } else if (s_mixed_read_phase == MIXED_READ_PHASE_SCOPE) {
             blk.stream_id = PICOMSO_STREAM_ID_SCOPE;
             read_ok = scope_capture_read_block(&block_id, blk.data, &data_len);
-            if (!read_ok) {
-                blk.stream_id = PICOMSO_STREAM_ID_LOGIC;
-                read_ok = logic_capture_read_block(&block_id, blk.data, &data_len);
-            }
+        } else {
+            read_ok = false;
         }
 
-        s_mixed_read_prefer_logic = !s_mixed_read_prefer_logic;
+        if (!read_ok) {
+            if (s_mixed_read_phase == MIXED_READ_PHASE_SCOPE) s_mixed_read_phase = MIXED_READ_PHASE_DONE;
+
+            debug("\n[protocol] READ_DATA_BLOCK terminal stream=mixed");
+            build_terminal_data_block(hdr, active_streams, resp);
+            return PICOMSO_STATUS_OK;
+        }
+
+        if (blk.stream_id == PICOMSO_STREAM_ID_SCOPE) s_mixed_read_phase = MIXED_READ_PHASE_SCOPE;
     }
 
     update_controller_state_from_backends(active_streams);
 
-    if (!read_ok) {
-        debug("\n[protocol] READ_DATA_BLOCK no_data backend=%s state=%s", stream_name(active_streams),
-              capture_state_name(capture_controller_get_state(&s_capture_ctrl)));
-        picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_UNKNOWN, "no finalized capture data", resp);
-        return PICOMSO_STATUS_ERR_UNKNOWN;
-    }
-
-    blk.flags = 0u;
+    blk.flags = data_block_flags_for_streams(active_streams, false);
     blk.block_id = block_id;
     blk.data_len = data_len;
 
     payload_len = (uint16_t)(sizeof(blk.stream_id) + sizeof(blk.flags) + sizeof(blk.block_id) + sizeof(blk.data_len) +
                              blk.data_len);
 
-    debug("\n[protocol] READ_DATA_BLOCK result stream_id=%u block=%u data_len=%u ctrl_state=%s", blk.stream_id,
-          block_id, data_len, capture_state_name(capture_controller_get_state(&s_capture_ctrl)));
+    debug("\n[protocol] READ_DATA_BLOCK result stream_id=%u block=%u data_len=%u flags=0x%02x ctrl_state=%s",
+          blk.stream_id, block_id, data_len, blk.flags,
+          capture_state_name(capture_controller_get_state(&s_capture_ctrl)));
 
     build_response(hdr, PICOMSO_MSG_DATA_BLOCK, &blk, payload_len, resp);
     return PICOMSO_STATUS_OK;
