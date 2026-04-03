@@ -34,8 +34,11 @@ extern "C" {
 
 void scope_capture_reset(void);
 bool scope_capture_start(const capture_config_t *config, complete_handler_t handler);
-bool scope_capture_prestart(const capture_config_t *config, complete_handler_t handler);
-void scope_capture_commit_start(void);
+bool scope_capture_prepare(const capture_config_t *config, complete_handler_t handler,
+                           const capture_trigger_gate_t *trigger_gate);
+bool scope_capture_arm(void);
+void scope_capture_activate(void);
+void scope_capture_mark_capturing(void);
 capture_state_t scope_capture_get_state(void);
 bool scope_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len);
 void oscilloscope_set_coupling(channel_t channel, coupling_t coupling);

@@ -10,7 +10,7 @@ and oscilloscope functionality in a single firmware and host integration stack.
 - **Channels:** 16 digital channels
 - **Maximum sample rate:** up to **200 MHz**
 - **Capture depth:** up to **50 ksamples**
-- **Pre-trigger buffer:** up to **1 ksample**
+- **Pre-trigger buffer:** up to **4 ksample**
 - **Trigger support:** level and edge triggers
 
 ### Oscilloscope
@@ -62,6 +62,14 @@ Additional documentation:
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/protocol.md`](docs/protocol.md)
 
+## Sample-rate limits
+
+When any analog channel is enabled, the maximum supported samplerate is
+**2 MS/s**. Requests above this limit are rejected by the driver with an
+argument error.
+
+Logic-only captures can still use higher samplerates, up to **200 MHz**.
+
 ## libsigrok support
 
 Until PicoMSO support is merged upstream, users need to build and install the
@@ -71,6 +79,10 @@ build instructions and apply them to the PicoMSO fork repository:
 
 The sigrok documentation covers the required dependencies, general build flow,
 and platform-specific notes for building from source.
+
+## Signal integrity note
+
+During validation, adding a series resistor of about **600 Ω** on the logic input helped suppress glitches and made trigger detection stable. If you observe spurious transitions or unreliable triggering, a small series resistor and, if needed, a simple RC filter may improve signal integrity.
 
 ## Status
 
