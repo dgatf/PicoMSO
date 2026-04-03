@@ -32,7 +32,7 @@
 #define SCOPE_CAPTURE_ADC_GPIO 26u
 #define SCOPE_CAPTURE_ADC_INPUT 0u
 
-#define PRE_TRIGGER_RING_BITS 10
+#define PRE_TRIGGER_RING_BITS 12
 #define PRE_TRIGGER_BUFFER_SIZE (1 << PRE_TRIGGER_RING_BITS)
 #define POST_TRIGGER_BUFFER_SIZE 50000
 #define PRE_TRIGGER_RING_TRANSFER_COUNT ((0xffffffffu / PRE_TRIGGER_BUFFER_SIZE) * PRE_TRIGGER_BUFFER_SIZE)
@@ -66,7 +66,8 @@ static scope_capture_phase_t s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
 static uint32_t s_capture_read_offset_bytes = 0u;
 
 static const uint dma_channel_adc_ = 7, dma_channel_adc_post_ = 8, dma_channel_reload_adc_counter_ = 9,
-                  dma_channel_dma_pre_ = 10, dma_channel_dma_post_ = 11, reload_counter_ = PRE_TRIGGER_RING_TRANSFER_COUNT;
+                  dma_channel_dma_pre_ = 10, dma_channel_dma_post_ = 11,
+                  reload_counter_ = PRE_TRIGGER_RING_TRANSFER_COUNT;
 static uint slice_num_;
 static uint16_t pre_trigger_buffer_[PRE_TRIGGER_BUFFER_SIZE]
     __attribute__((aligned(PRE_TRIGGER_BUFFER_SIZE * sizeof(uint16_t)))),
@@ -82,8 +83,7 @@ static void scope_capture_configure_adc(void);
 static inline void complete_handler(void);
 static inline void capture_stop(void);
 
-static const char *scope_capture_phase_name(scope_capture_phase_t phase)
-{
+static const char *scope_capture_phase_name(scope_capture_phase_t phase) {
     switch (phase) {
         case SCOPE_CAPTURE_PHASE_DISARMED:
             return "DISARMED";
@@ -101,10 +101,8 @@ static const char *scope_capture_phase_name(scope_capture_phase_t phase)
 }
 
 void scope_capture_reset(void) {
-    debug("\n[scope] reset begin phase=%s total_samples=%lu read_offset=%lu",
-          scope_capture_phase_name(s_phase),
-          (unsigned long)s_scope_capture_config.total_samples,
-          (unsigned long)s_capture_read_offset_bytes);
+    debug("\n[scope] reset begin phase=%s total_samples=%lu read_offset=%lu", scope_capture_phase_name(s_phase),
+          (unsigned long)s_scope_capture_config.total_samples, (unsigned long)s_capture_read_offset_bytes);
     if (s_phase == SCOPE_CAPTURE_PHASE_CAPTURING) {
         s_phase = SCOPE_CAPTURE_PHASE_ABORTING;
         capture_stop();
@@ -121,18 +119,14 @@ void scope_capture_reset(void) {
     debug("\n[scope] reset done phase=%s", scope_capture_phase_name(s_phase));
 }
 
-bool scope_capture_prestart(const capture_config_t *config, complete_handler_t handler)
-{
+bool scope_capture_prestart(const capture_config_t *config, complete_handler_t handler) {
     if (config == NULL || handler == NULL) {
-        debug("\n[scope] prestart rejected reason=bad_args config=%u handler=%u",
-              config != NULL, handler != NULL);
+        debug("\n[scope] prestart rejected reason=bad_args config=%u handler=%u", config != NULL, handler != NULL);
         return false;
     }
 
-    if (s_phase != SCOPE_CAPTURE_PHASE_DISARMED &&
-        s_phase != SCOPE_CAPTURE_PHASE_FINALIZED) {
-        debug("\n[scope] prestart rejected reason=busy phase=%s",
-              scope_capture_phase_name(s_phase));
+    if (s_phase != SCOPE_CAPTURE_PHASE_DISARMED && s_phase != SCOPE_CAPTURE_PHASE_FINALIZED) {
+        debug("\n[scope] prestart rejected reason=busy phase=%s", scope_capture_phase_name(s_phase));
         return false;
     }
 
@@ -144,8 +138,7 @@ bool scope_capture_prestart(const capture_config_t *config, complete_handler_t h
 
     if (config->pre_trigger_samples > config->total_samples) {
         debug("\n[scope] prestart rejected reason=pre_gt_total pre=%lu samples=%lu",
-              (unsigned long)config->pre_trigger_samples,
-              (unsigned long)config->total_samples);
+              (unsigned long)config->pre_trigger_samples, (unsigned long)config->total_samples);
         return false;
     }
 
@@ -159,11 +152,8 @@ bool scope_capture_prestart(const capture_config_t *config, complete_handler_t h
     uint32_t pre_trigger_samples = config->pre_trigger_samples;
 
     debug("\n[scope] prestart request phase=%s samples=%lu rate=%lu pre=%lu logic_triggers=%u",
-          scope_capture_phase_name(s_phase),
-          (unsigned long)samples,
-          (unsigned long)rate,
-          (unsigned long)pre_trigger_samples,
-          logic_capture_get_trigger_count());
+          scope_capture_phase_name(s_phase), (unsigned long)samples, (unsigned long)rate,
+          (unsigned long)pre_trigger_samples, logic_capture_get_trigger_count());
 
     scope_capture_configure_adc();
 
@@ -175,11 +165,7 @@ bool scope_capture_prestart(const capture_config_t *config, complete_handler_t h
 
     adc_run(false);
     adc_fifo_drain();
-    adc_fifo_setup(true,
-                   true,
-                   1,
-                   false,
-                   false);
+    adc_fifo_setup(true, true, 1, false, false);
 
     uint ch_count = 1;
     oscilloscope_set_samplerate(s_scope_capture_config.rate * ch_count);
@@ -190,9 +176,7 @@ bool scope_capture_prestart(const capture_config_t *config, complete_handler_t h
     channel_config_set_write_increment(&config_dma_channel_reload_adc_counter, false);
     channel_config_set_read_increment(&config_dma_channel_reload_adc_counter, false);
     dma_channel_configure(dma_channel_reload_adc_counter_, &config_dma_channel_reload_adc_counter,
-                          &dma_hw->ch[dma_channel_adc_].al1_transfer_count_trig,
-                          &reload_counter_,
-                          1, false);
+                          &dma_hw->ch[dma_channel_adc_].al1_transfer_count_trig, &reload_counter_, 1, false);
 
     dma_channel_config channel_config_adc = dma_channel_get_default_config(dma_channel_adc_);
     channel_config_set_transfer_data_size(&channel_config_adc, DMA_SIZE_16);
@@ -201,9 +185,7 @@ bool scope_capture_prestart(const capture_config_t *config, complete_handler_t h
     channel_config_set_read_increment(&channel_config_adc, false);
     channel_config_set_dreq(&channel_config_adc, DREQ_ADC);
     channel_config_set_chain_to(&channel_config_adc, dma_channel_reload_adc_counter_);
-    dma_channel_configure(dma_channel_adc_, &channel_config_adc,
-                          &pre_trigger_buffer_,
-                          &adc_hw->fifo,
+    dma_channel_configure(dma_channel_adc_, &channel_config_adc, &pre_trigger_buffer_, &adc_hw->fifo,
                           PRE_TRIGGER_RING_TRANSFER_COUNT, false);
 
     dma_channel_config channel_config_adc_post = dma_channel_get_default_config(dma_channel_adc_post_);
@@ -212,11 +194,8 @@ bool scope_capture_prestart(const capture_config_t *config, complete_handler_t h
     channel_config_set_read_increment(&channel_config_adc_post, false);
     channel_config_set_dreq(&channel_config_adc_post, DREQ_ADC);
     dma_channel_set_irq1_enabled(dma_channel_adc_post_, true);
-    dma_channel_configure(dma_channel_adc_post_, &channel_config_adc_post,
-                          &post_trigger_buffer_,
-                          &adc_hw->fifo,
-                          s_scope_capture_config.total_samples - s_scope_capture_config.pre_trigger_samples,
-                          false);
+    dma_channel_configure(dma_channel_adc_post_, &channel_config_adc_post, &post_trigger_buffer_, &adc_hw->fifo,
+                          s_scope_capture_config.total_samples - s_scope_capture_config.pre_trigger_samples, false);
 
     dma_channel_config config_dma_channel_dma_pre = dma_channel_get_default_config(dma_channel_dma_pre_);
     dma_channel_config config_dma_channel_dma_post = dma_channel_get_default_config(dma_channel_dma_post_);
@@ -226,18 +205,13 @@ bool scope_capture_prestart(const capture_config_t *config, complete_handler_t h
     channel_config_set_read_increment(&config_dma_channel_dma_pre, false);
     channel_config_set_dreq(&config_dma_channel_dma_pre, pio_get_dreq(pio0, logic_capture_get_sm_mux(), false));
     channel_config_set_chain_to(&config_dma_channel_dma_pre, dma_channel_dma_post_);
-    dma_channel_configure(dma_channel_dma_pre_, &config_dma_channel_dma_pre,
-                          &dma_hw->abort,
-                          &dma_pre_,
-                          1, true);
+    dma_channel_configure(dma_channel_dma_pre_, &config_dma_channel_dma_pre, &dma_hw->abort, &dma_pre_, 1, true);
 
     channel_config_set_transfer_data_size(&config_dma_channel_dma_post, DMA_SIZE_32);
     channel_config_set_write_increment(&config_dma_channel_dma_post, false);
     channel_config_set_read_increment(&config_dma_channel_dma_post, false);
-    dma_channel_configure(dma_channel_dma_post_, &config_dma_channel_dma_post,
-                          &dma_hw->multi_channel_trigger,
-                          &dma_post_,
-                          1, false);
+    dma_channel_configure(dma_channel_dma_post_, &config_dma_channel_dma_post, &dma_hw->multi_channel_trigger,
+                          &dma_post_, 1, false);
 
     irq_set_exclusive_handler(DMA_IRQ_1, complete_handler);
     irq_set_enabled(DMA_IRQ_1, true);
@@ -247,21 +221,15 @@ bool scope_capture_prestart(const capture_config_t *config, complete_handler_t h
     s_phase = SCOPE_CAPTURE_PHASE_ARMED;
 
     debug("\n[scope] prestart armed phase=%s samples=%u rate=%u pre=%u post=%u logic_triggers=%u",
-          scope_capture_phase_name(s_phase),
-          s_scope_capture_config.total_samples,
-          rate_,
-          pre_trigger_samples_,
-          post_trigger_samples_,
-          logic_capture_get_trigger_count());
+          scope_capture_phase_name(s_phase), s_scope_capture_config.total_samples, rate_, pre_trigger_samples_,
+          post_trigger_samples_, logic_capture_get_trigger_count());
 
     return true;
 }
 
-void scope_capture_commit_start(void)
-{
+void scope_capture_commit_start(void) {
     if (s_phase != SCOPE_CAPTURE_PHASE_ARMED) {
-        debug("\n[scope] commit ignored reason=bad_phase phase=%s",
-              scope_capture_phase_name(s_phase));
+        debug("\n[scope] commit ignored reason=bad_phase phase=%s", scope_capture_phase_name(s_phase));
         return;
     }
 
@@ -275,18 +243,12 @@ void scope_capture_commit_start(void)
     s_phase = SCOPE_CAPTURE_PHASE_CAPTURING;
 
     debug("\n[scope] commit started phase=%s samples=%u rate=%u pre=%u post=%u logic_triggers=%u",
-          scope_capture_phase_name(s_phase),
-          s_scope_capture_config.total_samples,
-          rate_,
-          pre_trigger_samples_,
-          post_trigger_samples_,
-          logic_capture_get_trigger_count());
+          scope_capture_phase_name(s_phase), s_scope_capture_config.total_samples, rate_, pre_trigger_samples_,
+          post_trigger_samples_, logic_capture_get_trigger_count());
 }
 
-bool scope_capture_start(const capture_config_t *config, complete_handler_t handler)
-{
-    if (!scope_capture_prestart(config, handler))
-        return false;
+bool scope_capture_start(const capture_config_t *config, complete_handler_t handler) {
+    if (!scope_capture_prestart(config, handler)) return false;
 
     scope_capture_commit_start();
     return true;
@@ -298,8 +260,7 @@ uint16_t scope_capture_get_sample_index(int index) {
     uint logical_index;
     uint physical_index;
 
-    if (index < 0 || (uint)index >= total_samples)
-        return 0;
+    if (index < 0 || (uint)index >= total_samples) return 0;
 
     logical_index = (uint)index;
 
@@ -307,8 +268,7 @@ uint16_t scope_capture_get_sample_index(int index) {
         uint64_t scaled = (uint64_t)logical_index * (uint64_t)max_scope_rate;
         physical_index = (uint)(scaled / (uint64_t)rate_);
 
-        if (physical_index >= total_samples)
-            physical_index = total_samples - 1u;
+        if (physical_index >= total_samples) physical_index = total_samples - 1u;
     } else {
         physical_index = logical_index;
     }
@@ -327,10 +287,8 @@ uint16_t scope_capture_get_sample_index(int index) {
     return post_trigger_buffer_[physical_index - pre_trigger_count_];
 }
 
-capture_state_t scope_capture_get_state(void)
-{
-    if (s_phase == SCOPE_CAPTURE_PHASE_ARMED ||
-        s_phase == SCOPE_CAPTURE_PHASE_CAPTURING) {
+capture_state_t scope_capture_get_state(void) {
+    if (s_phase == SCOPE_CAPTURE_PHASE_ARMED || s_phase == SCOPE_CAPTURE_PHASE_CAPTURING) {
         return CAPTURE_RUNNING;
     }
 
@@ -348,14 +306,12 @@ bool scope_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_
     }
 
     if (s_phase != SCOPE_CAPTURE_PHASE_FINALIZED) {
-        debug("\n[scope] read rejected reason=not_finalized phase=%s",
-              scope_capture_phase_name(s_phase));
+        debug("\n[scope] read rejected reason=not_finalized phase=%s", scope_capture_phase_name(s_phase));
         return false;
     }
 
     if (s_capture_read_offset_bytes >= total_bytes) {
-        debug("\n[scope] read drained total_bytes=%lu",
-              (unsigned long)total_bytes);
+        debug("\n[scope] read drained total_bytes=%lu", (unsigned long)total_bytes);
         return false;
     }
 
@@ -373,9 +329,8 @@ bool scope_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_
     *data_len = chunk_bytes;
     s_capture_read_offset_bytes += chunk_bytes;
 
-    debug("\n[scope] read result block=%u data_len=%u next_offset=%lu pending=%s",
-          *block_id, *data_len, (unsigned long)s_capture_read_offset_bytes,
-          s_capture_read_offset_bytes < total_bytes ? "yes" : "no");
+    debug("\n[scope] read result block=%u data_len=%u next_offset=%lu pending=%s", *block_id, *data_len,
+          (unsigned long)s_capture_read_offset_bytes, s_capture_read_offset_bytes < total_bytes ? "yes" : "no");
 
     return true;
 }
@@ -407,8 +362,8 @@ void oscilloscope_set_samplerate(uint samplerate) {
         clk_div = clock_get_hz(clk_usb) / samplerate;
         *clk_adc_ctrl = 0x800;  // clk_usb
     }
-    debug("\n[scope] samplerate configured clk_div=%.2f rate=%u source=%s",
-          clk_div, samplerate, samplerate > 500e3 ? "clk_sys" : "clk_usb");
+    debug("\n[scope] samplerate configured clk_div=%.2f rate=%u source=%s", clk_div, samplerate,
+          samplerate > 500e3 ? "clk_sys" : "clk_usb");
     adc_set_clkdiv(clk_div);
 }
 
