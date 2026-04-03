@@ -30,6 +30,7 @@ extern "C" {
 
 #define SCOPE_CAPTURE_BLOCK_BYTES 64u
 #define SCOPE_CAPTURE_MAX_SAMPLES 50000u
+#define SCOPE_CAPTURE_PRE_TRIGGER_MAX_SAMPLES 4096u
 
 void scope_capture_reset(void);
 bool scope_capture_start(const capture_config_t *config, complete_handler_t handler);
