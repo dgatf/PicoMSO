@@ -46,10 +46,10 @@ extern "C" {
  * ----------------------------------------------------------------------- */
 
 /** Protocol major version.  Bump when wire format changes incompatibly. */
-#define PICOMSO_PROTOCOL_VERSION_MAJOR  0
+#define PICOMSO_PROTOCOL_VERSION_MAJOR 0
 
 /** Protocol minor version.  Bump when new commands are added. */
-#define PICOMSO_PROTOCOL_VERSION_MINOR  3
+#define PICOMSO_PROTOCOL_VERSION_MINOR 3
 
 /* -----------------------------------------------------------------------
  * Packet framing constants
@@ -59,16 +59,16 @@ extern "C" {
  * Two-byte magic value placed at the start of every packet ("MS" in ASCII,
  * little-endian: 0x53 0x4D on the wire).
  */
-#define PICOMSO_PACKET_MAGIC       UINT16_C(0x4D53)
+#define PICOMSO_PACKET_MAGIC UINT16_C(0x4D53)
 
 #define PICOMSO_CAP_LOGIC UINT32_C(1 << 0)
 #define PICOMSO_CAP_SCOPE UINT32_C(1 << 1)
 
 /** Minimum number of bytes a valid packet must supply. */
-#define PICOMSO_PACKET_HEADER_SIZE  ((size_t)sizeof(picomso_packet_header_t))
+#define PICOMSO_PACKET_HEADER_SIZE ((size_t)sizeof(picomso_packet_header_t))
 
 /** Maximum payload length accepted by this implementation (bytes). */
-#define PICOMSO_MAX_PAYLOAD_LEN  UINT16_C(512)
+#define PICOMSO_MAX_PAYLOAD_LEN UINT16_C(512)
 
 /* -----------------------------------------------------------------------
  * Packet header
@@ -86,10 +86,10 @@ extern "C" {
 
 typedef struct {
     uint16_t magic;
-    uint8_t  version_major;
-    uint8_t  version_minor;
-    uint8_t  msg_type;
-    uint8_t  seq;
+    uint8_t version_major;
+    uint8_t version_minor;
+    uint8_t msg_type;
+    uint8_t seq;
     uint16_t length;
 } __attribute__((packed)) picomso_packet_header_t;
 
@@ -99,17 +99,17 @@ typedef struct {
 
 typedef enum {
     /* Requests (host → device) */
-    PICOMSO_MSG_GET_INFO          = 0x01,
-    PICOMSO_MSG_GET_CAPABILITIES  = 0x02,
-    PICOMSO_MSG_GET_STATUS        = 0x03,
-    PICOMSO_MSG_SET_MODE          = 0x04,
-    PICOMSO_MSG_REQUEST_CAPTURE   = 0x05, /**< Perform one full one-shot capture request */
-    PICOMSO_MSG_READ_DATA_BLOCK   = 0x06, /**< Read one chunk from the finalized capture buffer */
+    PICOMSO_MSG_GET_INFO = 0x01,
+    PICOMSO_MSG_GET_CAPABILITIES = 0x02,
+    PICOMSO_MSG_GET_STATUS = 0x03,
+    PICOMSO_MSG_SET_MODE = 0x04,
+    PICOMSO_MSG_REQUEST_CAPTURE = 0x05, /**< Perform one full one-shot capture request */
+    PICOMSO_MSG_READ_DATA_BLOCK = 0x06, /**< Read one chunk from the finalized capture buffer */
 
     /* Responses (device → host) */
-    PICOMSO_MSG_ACK               = 0x80,
-    PICOMSO_MSG_ERROR             = 0x81,
-    PICOMSO_MSG_DATA_BLOCK        = 0x82, /**< Data-plane response carrying sample bytes */
+    PICOMSO_MSG_ACK = 0x80,
+    PICOMSO_MSG_ERROR = 0x81,
+    PICOMSO_MSG_DATA_BLOCK = 0x82, /**< Data-plane response carrying sample bytes */
 } picomso_msg_type_t;
 
 /* -----------------------------------------------------------------------
@@ -117,12 +117,12 @@ typedef enum {
  * ----------------------------------------------------------------------- */
 
 typedef enum {
-    PICOMSO_STATUS_OK             = 0x00,
-    PICOMSO_STATUS_ERR_UNKNOWN    = 0x01, /**< Unrecognised command */
-    PICOMSO_STATUS_ERR_BAD_MAGIC  = 0x02, /**< Magic bytes mismatch */
-    PICOMSO_STATUS_ERR_BAD_LEN    = 0x03, /**< Payload length out of range */
-    PICOMSO_STATUS_ERR_BAD_MODE   = 0x04, /**< Unknown mode in SET_MODE */
-    PICOMSO_STATUS_ERR_VERSION    = 0x05, /**< Incompatible protocol version */
+    PICOMSO_STATUS_OK = 0x00,
+    PICOMSO_STATUS_ERR_UNKNOWN = 0x01,   /**< Unrecognised command */
+    PICOMSO_STATUS_ERR_BAD_MAGIC = 0x02, /**< Magic bytes mismatch */
+    PICOMSO_STATUS_ERR_BAD_LEN = 0x03,   /**< Payload length out of range */
+    PICOMSO_STATUS_ERR_BAD_MODE = 0x04,  /**< Unknown mode in SET_MODE */
+    PICOMSO_STATUS_ERR_VERSION = 0x05,   /**< Incompatible protocol version */
 } picomso_status_t;
 
 /* -----------------------------------------------------------------------
@@ -167,14 +167,14 @@ typedef struct {
  * ----------------------------------------------------------------------- */
 
 /** Size in bytes of each logic-capture payload block returned by READ_DATA_BLOCK. */
-#define PICOMSO_DATA_BLOCK_SIZE  64u
+#define PICOMSO_DATA_BLOCK_SIZE 64u
 
 /** Response buffer large enough for any packet this implementation produces. */
-#define PICOMSO_RESPONSE_BUF_SIZE  256u
+#define PICOMSO_RESPONSE_BUF_SIZE 256u
 
 typedef struct {
     uint8_t buf[PICOMSO_RESPONSE_BUF_SIZE];
-    size_t  used;
+    size_t used;
 } picomso_response_t;
 
 /* -----------------------------------------------------------------------
@@ -192,9 +192,7 @@ typedef struct {
  * @return PICOMSO_STATUS_OK if the packet was handled without error,
  *         or a picomso_status_t error code otherwise.
  */
-picomso_status_t picomso_dispatch(const uint8_t      *in_buf,
-                                  size_t              in_len,
-                                  picomso_response_t *resp);
+picomso_status_t picomso_dispatch(const uint8_t *in_buf, size_t in_len, picomso_response_t *resp);
 
 /**
  * Write a complete ACK response packet into resp.
@@ -212,10 +210,7 @@ void picomso_write_ack(uint8_t seq, picomso_response_t *resp);
  * @param msg     Human-readable NUL-terminated string (may be NULL).
  * @param resp    Output buffer to write into.
  */
-void picomso_write_error(uint8_t            seq,
-                         picomso_status_t   status,
-                         const char        *msg,
-                         picomso_response_t *resp);
+void picomso_write_error(uint8_t seq, picomso_status_t status, const char *msg, picomso_response_t *resp);
 
 #ifdef __cplusplus
 }

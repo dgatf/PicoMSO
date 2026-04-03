@@ -32,15 +32,13 @@
 
 /* Maximum bytes that can arrive in a single packet: 8-byte header +
  * up to 512 bytes of payload (PICOMSO_MAX_PAYLOAD_LEN). */
-#define INTEGRATION_RX_BUF_SIZE  (PICOMSO_PACKET_HEADER_SIZE + PICOMSO_MAX_PAYLOAD_LEN)
+#define INTEGRATION_RX_BUF_SIZE (PICOMSO_PACKET_HEADER_SIZE + PICOMSO_MAX_PAYLOAD_LEN)
 
 /* -----------------------------------------------------------------------
  * integration_init
  * ----------------------------------------------------------------------- */
 
-integration_result_t integration_init(integration_ctx_t *ctx,
-                                       transport_ctx_t   *transport)
-{
+integration_result_t integration_init(integration_ctx_t *ctx, transport_ctx_t *transport) {
     if (ctx == NULL || transport == NULL) {
         return INTEGRATION_ERR_NULL;
     }
@@ -52,18 +50,16 @@ integration_result_t integration_init(integration_ctx_t *ctx,
  * integration_process_one
  * ----------------------------------------------------------------------- */
 
-integration_result_t integration_process_one(integration_ctx_t *ctx)
-{
+integration_result_t integration_process_one(integration_ctx_t *ctx) {
     if (ctx == NULL || ctx->transport == NULL) {
         return INTEGRATION_ERR_NULL;
     }
 
     /* Step 1: receive one packet from the transport. */
-    uint8_t  rx_buf[INTEGRATION_RX_BUF_SIZE];
-    size_t   bytes_read = 0;
+    uint8_t rx_buf[INTEGRATION_RX_BUF_SIZE];
+    size_t bytes_read = 0;
 
-    transport_result_t tr = transport_receive(ctx->transport, rx_buf,
-                                              sizeof(rx_buf), &bytes_read);
+    transport_result_t tr = transport_receive(ctx->transport, rx_buf, sizeof(rx_buf), &bytes_read);
     if (tr != TRANSPORT_OK) {
         return INTEGRATION_ERR_RECV;
     }
