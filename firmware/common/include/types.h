@@ -59,6 +59,9 @@ typedef struct capture_config_t {
 } capture_config_t;
 
 typedef struct capture_trigger_gate_t {
+    // When enabled, mixed scope startup waits on an external trigger gate rather
+    // than starting its post-trigger path immediately. dreq is the fully
+    // prepared hardware DREQ source that signals that gate.
     bool enabled;
     uint dreq;
 } capture_trigger_gate_t;

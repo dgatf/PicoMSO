@@ -32,6 +32,9 @@ extern "C" {
 #define LOGIC_CAPTURE_MAX_SAMPLES 100000u
 
 typedef struct logic_capture_activation_t {
+    // Precomputed direct-write masks for the final logic activation point.
+    // Mixed mode uses these to write pio0->ctrl / pio1->ctrl in the intended
+    // order once all DMA and PIO state machines are already armed.
     uint32_t pio0_enable_mask;
     uint32_t pio1_enable_mask;
 } logic_capture_activation_t;

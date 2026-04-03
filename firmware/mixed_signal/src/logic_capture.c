@@ -269,6 +269,8 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
     channel_config_set_read_increment(&channel_config_pre_trigger_capture, false);
     channel_config_set_dreq(&channel_config_pre_trigger_capture, pio_get_dreq(pio0, sm_pre_trigger_, false));
     channel_config_set_chain_to(&channel_config_pre_trigger_capture, dma_pre_trigger_reload_);
+    // Armed explicitly in logic_capture_arm() so mixed mode can keep both
+    // backends fully prepared before the final activation writes.
     dma_channel_configure(dma_pre_trigger_capture_, &channel_config_pre_trigger_capture, &pre_trigger_buffer_,
                           &pio0->rxf[sm_pre_trigger_], PRE_TRIGGER_RING_TRANSFER_COUNT, false);
 
@@ -503,6 +505,8 @@ static inline bool set_trigger(trigger_t trigger) {
         channel_config_set_write_increment(&channel_config_trigger_to_mux, false);
         channel_config_set_read_increment(&channel_config_trigger_to_mux, false);
         channel_config_set_dreq(&channel_config_trigger_to_mux, pio_get_dreq(pio1, sm_trigger_[trigger_count_], false));
+        // Armed explicitly in logic_capture_arm() so trigger routing is waiting
+        // before mixed activation enables the source state machines.
         dma_channel_configure(dma_trigger_to_mux_[trigger_count_], &channel_config_trigger_to_mux, &pio0->txf[sm_mux_],
                               &triggered_channel_index_[trigger_count_], 1, false);
 
