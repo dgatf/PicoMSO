@@ -3,13 +3,9 @@
 #include "logic_capture.h"
 #include "scope_capture.h"
 
-bool mixed_capture_start(const capture_config_t *logic_config,
-                         const capture_config_t *scope_config,
-                         complete_handler_t logic_handler,
-                         complete_handler_t scope_handler)
-{
-    if (logic_config == NULL || scope_config == NULL ||
-        logic_handler == NULL || scope_handler == NULL) {
+bool mixed_capture_start(const capture_config_t *logic_config, const capture_config_t *scope_config,
+                         complete_handler_t logic_handler, complete_handler_t scope_handler) {
+    if (logic_config == NULL || scope_config == NULL || logic_handler == NULL || scope_handler == NULL) {
         return false;
     }
 
@@ -22,14 +18,13 @@ bool mixed_capture_start(const capture_config_t *logic_config,
         return false;
     }
 
-    logic_capture_commit_start();
     scope_capture_commit_start();
+    logic_capture_commit_start();
 
     return true;
 }
 
-void mixed_capture_reset(void)
-{
+void mixed_capture_reset(void) {
     logic_capture_reset();
     scope_capture_reset();
 }

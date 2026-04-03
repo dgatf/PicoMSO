@@ -1,6 +1,5 @@
 add_library(picomso_integration STATIC
     src/integration.c
-    src/dummy_transport.c
 )
 
 target_include_directories(picomso_integration
