@@ -34,7 +34,9 @@ extern "C" {
 typedef void (*complete_handler_t)(void);
 
 void logic_capture_reset(void);
+bool logic_capture_prestart(const capture_config_t *config, complete_handler_t handler);
 bool logic_capture_start(const capture_config_t *config, complete_handler_t handler);
+void logic_capture_commit_start(void);
 capture_state_t logic_capture_get_state(void);
 bool logic_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len);
 uint logic_capture_get_sm_mux(void);
