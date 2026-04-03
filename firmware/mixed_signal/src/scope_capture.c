@@ -43,6 +43,7 @@
 
 #define SCOPE_CAPTURE_MAX_REAL_RATE 2083333u
 
+
 typedef enum scope_capture_phase_t {
     SCOPE_CAPTURE_PHASE_DISARMED = 0,
     SCOPE_CAPTURE_PHASE_ARMED,

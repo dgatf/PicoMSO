@@ -418,11 +418,13 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
 
     if ((active_streams & PICOMSO_STREAM_SCOPE) != 0u) {
         if (req.total_samples == 0u || req.total_samples > scope_max_samples ||
-            req.pre_trigger_samples > req.total_samples) {
+            req.pre_trigger_samples > req.total_samples ||
+            req.pre_trigger_samples > SCOPE_CAPTURE_PRE_TRIGGER_MAX_SAMPLES) {
             debug(
-                "\n[protocol] REQUEST_CAPTURE rejected reason=invalid_scope_capture_sizing samples=%lu pre=%lu max=%lu",
+                "\n[protocol] REQUEST_CAPTURE rejected reason=invalid_scope_capture_sizing samples=%lu pre=%lu max=%lu "
+                "pre_max=%u",
                 (unsigned long)req.total_samples, (unsigned long)req.pre_trigger_samples,
-                (unsigned long)scope_max_samples);
+                (unsigned long)scope_max_samples, SCOPE_CAPTURE_PRE_TRIGGER_MAX_SAMPLES);
             picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid scope capture sizing", resp);
             return PICOMSO_STATUS_ERR_BAD_LEN;
         }
