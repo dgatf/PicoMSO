@@ -9,6 +9,10 @@ extern "C" {
 
 #include "protocol.h"
 
+#define PICOMSO_DATA_BLOCK_FLAG_LOGIC_FINALIZED  UINT8_C(1u << 0)
+#define PICOMSO_DATA_BLOCK_FLAG_SCOPE_FINALIZED  UINT8_C(1u << 1)
+#define PICOMSO_DATA_BLOCK_FLAG_TERMINAL         UINT8_C(1u << 2)
+
 /* -----------------------------------------------------------------------
  * STREAM DEFINITIONS
  * ----------------------------------------------------------------------- */
