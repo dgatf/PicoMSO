@@ -40,8 +40,7 @@
 #define GPIO_COUPLING_CH2_DC 21
 #define GPIO_CALIBRATION 22
 
-#define SCOPE_CAPTURE_MAX_REAL_RATE 2083333u
-
+#define SCOPE_CAPTURE_ADC_CYCLES_PER_SAMPLE 96u
 
 typedef enum scope_capture_phase_t {
     SCOPE_CAPTURE_PHASE_DISARMED = 0,
@@ -84,6 +83,22 @@ static int pre_trigger_first_;
 static void scope_capture_configure_adc(void);
 static inline void complete_handler(void);
 static inline void capture_stop(void);
+static uint32_t scope_capture_get_adc_source_hz(uint32_t samplerate);
+static uint32_t scope_capture_get_max_real_rate(uint32_t samplerate);
+
+static uint32_t scope_capture_get_adc_source_hz(uint32_t samplerate) {
+    if (samplerate > 500000u) return clock_get_hz(clk_sys);
+
+    return clock_get_hz(clk_usb);
+}
+
+static uint32_t scope_capture_get_max_real_rate(uint32_t samplerate) {
+    uint32_t adc_clk_hz = scope_capture_get_adc_source_hz(samplerate);
+
+    if (adc_clk_hz == 0u) return 0u;
+
+    return adc_clk_hz / SCOPE_CAPTURE_ADC_CYCLES_PER_SAMPLE;
+}
 
 static const char *scope_capture_phase_name(scope_capture_phase_t phase) {
     switch (phase) {
@@ -160,9 +175,9 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
     s_trigger_gate = *trigger_gate;
     s_activation_armed = false;
 
-    debug("\n[scope] prepare request phase=%s samples=%lu rate=%lu pre=%lu gate=%s",
-          scope_capture_phase_name(s_phase), (unsigned long)samples, (unsigned long)rate,
-          (unsigned long)pre_trigger_samples, s_trigger_gate.enabled ? "logic" : "none");
+    debug("\n[scope] prepare request phase=%s samples=%lu rate=%lu pre=%lu gate=%s", scope_capture_phase_name(s_phase),
+          (unsigned long)samples, (unsigned long)rate, (unsigned long)pre_trigger_samples,
+          s_trigger_gate.enabled ? "logic" : "none");
 
     scope_capture_configure_adc();
 
@@ -258,9 +273,9 @@ bool scope_capture_arm(void) {
 
     s_activation_armed = true;
 
-    debug("\n[scope] arm ready phase=%s samples=%u rate=%u pre=%u post=%u gate=%s",
-          scope_capture_phase_name(s_phase), s_scope_capture_config.total_samples, rate_, pre_trigger_samples_,
-          post_trigger_samples_, s_trigger_gate.enabled ? "logic" : "none");
+    debug("\n[scope] arm ready phase=%s samples=%u rate=%u pre=%u post=%u gate=%s", scope_capture_phase_name(s_phase),
+          s_scope_capture_config.total_samples, rate_, pre_trigger_samples_, post_trigger_samples_,
+          s_trigger_gate.enabled ? "logic" : "none");
     return true;
 }
 
@@ -300,7 +315,7 @@ bool scope_capture_start(const capture_config_t *config, complete_handler_t hand
 }
 
 uint16_t scope_capture_get_sample_index(int index) {
-    const uint32_t max_scope_rate = SCOPE_CAPTURE_MAX_REAL_RATE;
+    const uint32_t max_scope_rate = scope_capture_get_max_real_rate(rate_);
     uint total_samples = pre_trigger_count_ + post_trigger_samples_;
     uint logical_index;
     uint physical_index;

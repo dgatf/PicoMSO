@@ -37,7 +37,7 @@
 #define POST_TRIGGER_BUFFER_SIZE 50000
 #define PRE_TRIGGER_RING_TRANSFER_COUNT ((0xffffffffu / PRE_TRIGGER_BUFFER_SIZE) * PRE_TRIGGER_BUFFER_SIZE)
 #define LOGIC_CAPTURE_MAX_TRIGGER_COUNT 2u
-#define RATE_CHANGE_CLK 5000
+#define RATE_CHANGE_CLK 200000u
 
 typedef enum logic_capture_phase_t {
     LOGIC_CAPTURE_PHASE_DISARMED = 0,
@@ -201,19 +201,17 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
             set_sys_clock_khz(200000, true);
             debug_reinit();
         }
-        clk_div_ = (float)clock_get_hz(clk_sys) / rate;
     } else {
         if (clock_get_hz(clk_sys) != 100000000) {
             set_sys_clock_khz(100000, true);
             debug_reinit();
         }
-        clk_div_ = (float)clock_get_hz(clk_sys) / rate / 32 / 10;
     }
 
+    clk_div_ = (float)clock_get_hz(clk_sys) / rate;
     if (clk_div_ > 0xffff) clk_div_ = 0xffff;
 
-    debug_block("\n[logic] prepare clocks sys_clk=%u clk_mode=%s clk_div=%f", clock_get_hz(clk_sys),
-                rate > RATE_CHANGE_CLK ? "fast" : "slow", clk_div_);
+    debug_block("\n[logic] prepare clocks sys_clk=%u clk_div=%f", clock_get_hz(clk_sys), clk_div_);
 
     dma_channel_config config_dma_arm_post_trigger = dma_channel_get_default_config(dma_arm_post_trigger_);
     channel_config_set_transfer_data_size(&config_dma_arm_post_trigger, DMA_SIZE_32);
@@ -244,23 +242,15 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
     irq_set_exclusive_handler(PIO0_IRQ_0, trigger_handler);
     irq_set_enabled(PIO0_IRQ_0, true);
 
-    if (rate > RATE_CHANGE_CLK) {
-        offset_pre_trigger_ = pio_add_program(pio0, &capture_program);
-        pio_config_pre_trigger_ = capture_program_get_default_config(offset_pre_trigger_);
-    } else {
-        offset_pre_trigger_ = pio_add_program(pio0, &capture_slow_program);
-        pio_config_pre_trigger_ = capture_slow_program_get_default_config(offset_pre_trigger_);
-    }
+    offset_pre_trigger_ = pio_add_program(pio0, &capture_program);
+    pio_config_pre_trigger_ = capture_program_get_default_config(offset_pre_trigger_);
 
     sm_config_set_in_pins(&pio_config_pre_trigger_, pin_base_);
     sm_config_set_in_shift(&pio_config_pre_trigger_, false, true, pin_count_);
     sm_config_set_clkdiv(&pio_config_pre_trigger_, clk_div_);
     pio_sm_init(pio0, sm_pre_trigger_, offset_pre_trigger_, &pio_config_pre_trigger_);
 
-    if (rate > RATE_CHANGE_CLK)
-        pio0->instr_mem[offset_pre_trigger_] = pio_encode_in(pio_pins, pin_count_);
-    else
-        pio0->instr_mem[offset_pre_trigger_] = pio_encode_in(pio_pins, pin_count_) | pio_encode_delay(31);
+    pio0->instr_mem[offset_pre_trigger_] = pio_encode_in(pio_pins, pin_count_);
 
     dma_channel_config channel_config_pre_trigger_capture = dma_channel_get_default_config(dma_pre_trigger_capture_);
     channel_config_set_transfer_data_size(&channel_config_pre_trigger_capture, DMA_SIZE_16);
@@ -274,23 +264,15 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
     dma_channel_configure(dma_pre_trigger_capture_, &channel_config_pre_trigger_capture, &pre_trigger_buffer_,
                           &pio0->rxf[sm_pre_trigger_], PRE_TRIGGER_RING_TRANSFER_COUNT, false);
 
-    if (rate > RATE_CHANGE_CLK) {
-        offset_post_trigger_ = pio_add_program(pio0, &capture_program);
-        pio_config_post_trigger_ = capture_program_get_default_config(offset_post_trigger_);
-    } else {
-        offset_post_trigger_ = pio_add_program(pio0, &capture_slow_program);
-        pio_config_post_trigger_ = capture_slow_program_get_default_config(offset_post_trigger_);
-    }
+    offset_post_trigger_ = pio_add_program(pio0, &capture_program);
+    pio_config_post_trigger_ = capture_program_get_default_config(offset_post_trigger_);
 
     sm_config_set_in_pins(&pio_config_post_trigger_, pin_base_);
     sm_config_set_in_shift(&pio_config_post_trigger_, false, true, pin_count_);
     sm_config_set_clkdiv(&pio_config_post_trigger_, clk_div_);
     pio_sm_init(pio0, sm_post_trigger_, offset_post_trigger_, &pio_config_post_trigger_);
 
-    if (rate > RATE_CHANGE_CLK)
-        pio0->instr_mem[offset_post_trigger_] = pio_encode_in(pio_pins, pin_count_);
-    else
-        pio0->instr_mem[offset_post_trigger_] = pio_encode_in(pio_pins, pin_count_) | pio_encode_delay(31);
+    pio0->instr_mem[offset_post_trigger_] = pio_encode_in(pio_pins, pin_count_);
 
     dma_channel_config channel_config_post_trigger_capture = dma_channel_get_default_config(dma_post_trigger_capture_);
     channel_config_set_transfer_data_size(&channel_config_post_trigger_capture, DMA_SIZE_16);
