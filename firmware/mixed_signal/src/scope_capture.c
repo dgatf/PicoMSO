@@ -26,7 +26,6 @@
 #include "hardware/dma.h"
 #include "hardware/irq.h"
 #include "hardware/pio.h"
-#include "logic_capture.h"
 #include "pico/stdlib.h"
 
 #define SCOPE_CAPTURE_ADC_GPIO 26u
@@ -65,6 +64,8 @@ static capture_config_t s_scope_capture_config = {.total_samples = 0u,
 
 static scope_capture_phase_t s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
 static uint32_t s_capture_read_offset_bytes = 0u;
+static bool s_activation_armed = false;
+static capture_trigger_gate_t s_trigger_gate = {.enabled = false, .dreq = 0u};
 
 static const uint dma_channel_adc_ = 7, dma_channel_adc_post_ = 8, dma_channel_reload_adc_counter_ = 9,
                   dma_channel_dma_pre_ = 10, dma_channel_dma_post_ = 11,
@@ -116,29 +117,34 @@ void scope_capture_reset(void) {
     post_trigger_samples_ = 0u;
     pre_trigger_count_ = 0u;
     pre_trigger_first_ = 0;
+    s_activation_armed = false;
+    s_trigger_gate.enabled = false;
+    s_trigger_gate.dreq = 0u;
     s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
     debug("\n[scope] reset done phase=%s", scope_capture_phase_name(s_phase));
 }
 
-bool scope_capture_prestart(const capture_config_t *config, complete_handler_t handler) {
-    if (config == NULL || handler == NULL) {
-        debug("\n[scope] prestart rejected reason=bad_args config=%u handler=%u", config != NULL, handler != NULL);
+bool scope_capture_prepare(const capture_config_t *config, complete_handler_t handler,
+                           const capture_trigger_gate_t *trigger_gate) {
+    if (config == NULL || handler == NULL || trigger_gate == NULL) {
+        debug("\n[scope] prepare rejected reason=bad_args config=%u handler=%u gate=%u", config != NULL,
+              handler != NULL, trigger_gate != NULL);
         return false;
     }
 
     if (s_phase != SCOPE_CAPTURE_PHASE_DISARMED && s_phase != SCOPE_CAPTURE_PHASE_FINALIZED) {
-        debug("\n[scope] prestart rejected reason=busy phase=%s", scope_capture_phase_name(s_phase));
+        debug("\n[scope] prepare rejected reason=busy phase=%s", scope_capture_phase_name(s_phase));
         return false;
     }
 
     if (config->total_samples == 0u || config->total_samples > SCOPE_CAPTURE_MAX_SAMPLES) {
-        debug("\n[scope] prestart rejected reason=invalid_total_samples samples=%lu max=%u",
+        debug("\n[scope] prepare rejected reason=invalid_total_samples samples=%lu max=%u",
               (unsigned long)config->total_samples, SCOPE_CAPTURE_MAX_SAMPLES);
         return false;
     }
 
     if (config->pre_trigger_samples > config->total_samples) {
-        debug("\n[scope] prestart rejected reason=pre_gt_total pre=%lu samples=%lu",
+        debug("\n[scope] prepare rejected reason=pre_gt_total pre=%lu samples=%lu",
               (unsigned long)config->pre_trigger_samples, (unsigned long)config->total_samples);
         return false;
     }
@@ -151,10 +157,12 @@ bool scope_capture_prestart(const capture_config_t *config, complete_handler_t h
     uint32_t samples = config->total_samples;
     uint32_t rate = config->rate;
     uint32_t pre_trigger_samples = config->pre_trigger_samples;
+    s_trigger_gate = *trigger_gate;
+    s_activation_armed = false;
 
-    debug("\n[scope] prestart request phase=%s samples=%lu rate=%lu pre=%lu logic_triggers=%u",
+    debug("\n[scope] prepare request phase=%s samples=%lu rate=%lu pre=%lu gate=%s",
           scope_capture_phase_name(s_phase), (unsigned long)samples, (unsigned long)rate,
-          (unsigned long)pre_trigger_samples, logic_capture_get_trigger_count());
+          (unsigned long)pre_trigger_samples, s_trigger_gate.enabled ? "logic" : "none");
 
     scope_capture_configure_adc();
 
@@ -198,21 +206,23 @@ bool scope_capture_prestart(const capture_config_t *config, complete_handler_t h
     dma_channel_configure(dma_channel_adc_post_, &channel_config_adc_post, &post_trigger_buffer_, &adc_hw->fifo,
                           s_scope_capture_config.total_samples - s_scope_capture_config.pre_trigger_samples, false);
 
-    dma_channel_config config_dma_channel_dma_pre = dma_channel_get_default_config(dma_channel_dma_pre_);
-    dma_channel_config config_dma_channel_dma_post = dma_channel_get_default_config(dma_channel_dma_post_);
+    if (s_trigger_gate.enabled) {
+        dma_channel_config config_dma_channel_dma_pre = dma_channel_get_default_config(dma_channel_dma_pre_);
+        dma_channel_config config_dma_channel_dma_post = dma_channel_get_default_config(dma_channel_dma_post_);
 
-    channel_config_set_transfer_data_size(&config_dma_channel_dma_pre, DMA_SIZE_32);
-    channel_config_set_write_increment(&config_dma_channel_dma_pre, false);
-    channel_config_set_read_increment(&config_dma_channel_dma_pre, false);
-    channel_config_set_dreq(&config_dma_channel_dma_pre, pio_get_dreq(pio0, logic_capture_get_sm_mux(), false));
-    channel_config_set_chain_to(&config_dma_channel_dma_pre, dma_channel_dma_post_);
-    dma_channel_configure(dma_channel_dma_pre_, &config_dma_channel_dma_pre, &dma_hw->abort, &dma_pre_, 1, true);
+        channel_config_set_transfer_data_size(&config_dma_channel_dma_pre, DMA_SIZE_32);
+        channel_config_set_write_increment(&config_dma_channel_dma_pre, false);
+        channel_config_set_read_increment(&config_dma_channel_dma_pre, false);
+        channel_config_set_dreq(&config_dma_channel_dma_pre, s_trigger_gate.dreq);
+        channel_config_set_chain_to(&config_dma_channel_dma_pre, dma_channel_dma_post_);
+        dma_channel_configure(dma_channel_dma_pre_, &config_dma_channel_dma_pre, &dma_hw->abort, &dma_pre_, 1, false);
 
-    channel_config_set_transfer_data_size(&config_dma_channel_dma_post, DMA_SIZE_32);
-    channel_config_set_write_increment(&config_dma_channel_dma_post, false);
-    channel_config_set_read_increment(&config_dma_channel_dma_post, false);
-    dma_channel_configure(dma_channel_dma_post_, &config_dma_channel_dma_post, &dma_hw->multi_channel_trigger,
-                          &dma_post_, 1, false);
+        channel_config_set_transfer_data_size(&config_dma_channel_dma_post, DMA_SIZE_32);
+        channel_config_set_write_increment(&config_dma_channel_dma_post, false);
+        channel_config_set_read_increment(&config_dma_channel_dma_post, false);
+        dma_channel_configure(dma_channel_dma_post_, &config_dma_channel_dma_post, &dma_hw->multi_channel_trigger,
+                              &dma_post_, 1, false);
+    }
 
     irq_set_exclusive_handler(DMA_IRQ_1, complete_handler);
     irq_set_enabled(DMA_IRQ_1, true);
@@ -221,37 +231,71 @@ bool scope_capture_prestart(const capture_config_t *config, complete_handler_t h
 
     s_phase = SCOPE_CAPTURE_PHASE_ARMED;
 
-    debug("\n[scope] prestart armed phase=%s samples=%u rate=%u pre=%u post=%u logic_triggers=%u",
+    debug("\n[scope] prepare armed phase=%s samples=%u rate=%u pre=%u post=%u gate=%s",
           scope_capture_phase_name(s_phase), s_scope_capture_config.total_samples, rate_, pre_trigger_samples_,
-          post_trigger_samples_, logic_capture_get_trigger_count());
+          post_trigger_samples_, s_trigger_gate.enabled ? "logic" : "none");
 
     return true;
 }
 
-void scope_capture_commit_start(void) {
+bool scope_capture_arm(void) {
     if (s_phase != SCOPE_CAPTURE_PHASE_ARMED) {
-        debug("\n[scope] commit ignored reason=bad_phase phase=%s", scope_capture_phase_name(s_phase));
-        return;
+        debug("\n[scope] arm rejected reason=bad_phase phase=%s", scope_capture_phase_name(s_phase));
+        return false;
     }
 
-    if (!logic_capture_get_trigger_count()) {
+    if (s_activation_armed) {
+        debug("\n[scope] arm rejected reason=already_armed");
+        return false;
+    }
+
+    if (!s_trigger_gate.enabled) {
         dma_hw->multi_channel_trigger = dma_post_;
     } else {
+        dma_channel_start(dma_channel_dma_pre_);
         dma_hw->multi_channel_trigger = dma_pre_;
     }
 
-    adc_run(true);
-    s_phase = SCOPE_CAPTURE_PHASE_CAPTURING;
+    s_activation_armed = true;
 
-    debug("\n[scope] commit started phase=%s samples=%u rate=%u pre=%u post=%u logic_triggers=%u",
+    debug("\n[scope] arm ready phase=%s samples=%u rate=%u pre=%u post=%u gate=%s",
           scope_capture_phase_name(s_phase), s_scope_capture_config.total_samples, rate_, pre_trigger_samples_,
-          post_trigger_samples_, logic_capture_get_trigger_count());
+          post_trigger_samples_, s_trigger_gate.enabled ? "logic" : "none");
+    return true;
+}
+
+void scope_capture_mark_capturing(void) {
+    if (s_phase != SCOPE_CAPTURE_PHASE_ARMED) return;
+
+    s_phase = SCOPE_CAPTURE_PHASE_CAPTURING;
+    s_activation_armed = false;
+}
+
+void scope_capture_activate(void) {
+    if (s_phase != SCOPE_CAPTURE_PHASE_ARMED || !s_activation_armed) {
+        debug("\n[scope] activate ignored reason=bad_state phase=%s armed=%u", scope_capture_phase_name(s_phase),
+              s_activation_armed);
+        return;
+    }
+
+    adc_run(true);
+    scope_capture_mark_capturing();
+
+    debug("\n[scope] activate started phase=%s samples=%u rate=%u pre=%u post=%u gate=%s",
+          scope_capture_phase_name(s_phase), s_scope_capture_config.total_samples, rate_, pre_trigger_samples_,
+          post_trigger_samples_, s_trigger_gate.enabled ? "logic" : "none");
 }
 
 bool scope_capture_start(const capture_config_t *config, complete_handler_t handler) {
-    if (!scope_capture_prestart(config, handler)) return false;
+    capture_trigger_gate_t trigger_gate = {.enabled = false, .dreq = 0u};
 
-    scope_capture_commit_start();
+    if (!scope_capture_prepare(config, handler, &trigger_gate)) return false;
+    if (!scope_capture_arm()) {
+        scope_capture_reset();
+        return false;
+    }
+
+    scope_capture_activate();
     return true;
 }
 
