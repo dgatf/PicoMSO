@@ -49,6 +49,7 @@ from typing import Dict, List, Sequence
 
 SCOPE_CAPTURE_MAX_SAMPLES = 50_000        # total analog buffer (interleaved)
 SCOPE_CAPTURE_PRE_TRIGGER_MAX_SAMPLES = 4_096
+# Number of available ADC input channels; valid indices are 0 to SCOPE_CAPTURE_ANALOG_CHANNEL_MAX-1.
 SCOPE_CAPTURE_ANALOG_CHANNEL_MAX = 3      # ADC inputs 0..2 (GPIO 26..28)
 
 # REQUEST_CAPTURE fixed trigger array: 4 entries × 3 bytes each.

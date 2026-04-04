@@ -441,7 +441,6 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         return PICOMSO_STATUS_ERR_UNKNOWN;
     }
 
-    memset(&req, 0, sizeof(req));
     memcpy(&req, payload, sizeof(req));
 
     /* Resolve analog_channels once: treat 0 as default (ADC input 0 only). */

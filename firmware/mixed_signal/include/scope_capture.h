@@ -32,7 +32,7 @@ extern "C" {
 /** Total analog sample buffer (interleaved across all enabled channels). */
 #define SCOPE_CAPTURE_MAX_SAMPLES 50000u
 #define SCOPE_CAPTURE_PRE_TRIGGER_MAX_SAMPLES 4096u
-/** Maximum number of simultaneously enabled ADC input channels. */
+/** Maximum number of simultaneously enabled ADC input channels (inputs 0, 1, 2). */
 #define SCOPE_CAPTURE_ANALOG_CHANNEL_MAX 3u
 
 void scope_capture_reset(void);
