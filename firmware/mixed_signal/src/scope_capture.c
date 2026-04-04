@@ -253,8 +253,18 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
     irq_set_exclusive_handler(DMA_IRQ_1, scope_capture_complete_handler);
     irq_set_enabled(DMA_IRQ_1, true);
 
-    /* Ensure round-robin starts deterministically at ADC input 0. */
-    adc_select_input(0);
+    /* Select the lowest ADC input in the channel mask so that round-robin
+     * starts deterministically at the first selected channel (e.g. ADC1
+     * when only bit 1 is set). */
+    {
+        uint first_input = 0u;
+        uint ch = s_scope_capture_config.channels;
+        while (ch != 0u && (ch & 1u) == 0u) {
+            ch >>= 1u;
+            first_input++;
+        }
+        adc_select_input(first_input);
+    }
     adc_set_round_robin(s_scope_capture_config.channels);
 
     s_phase = SCOPE_CAPTURE_PHASE_ARMED;

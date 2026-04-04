@@ -133,6 +133,7 @@ Request payload:
 | 4 | 4 | `rate` |
 | 8 | 4 | `pre_trigger_samples` |
 | 12 | 12 | `trigger[4]` |
+| 24 | 1 | `analog_channels` *(optional, see below)* |
 
 Each trigger entry is:
 
@@ -142,8 +143,32 @@ Each trigger entry is:
 | 1 | 1 | `pin` |
 | 2 | 1 | `match` |
 
-The firmware validates the payload length, stream selection, trigger entries,
-and capture sizing before starting capture.
+`analog_channels` is a bitmask of ADC inputs to enable for scope capture:
+
+- bit 0 – ADC input 0 (A0, GPIO 26)
+- bit 1 – ADC input 1 (A1, GPIO 27)
+- bit 2 – ADC input 2 (A2, GPIO 28)
+
+Only bits 0–2 are valid; other bits are rejected.  A value of `0x00` is
+treated as `0x01` (ADC input 0 only) on the firmware side.
+
+**Backward compatibility**: the firmware accepts both the 24-byte form
+(without `analog_channels`) and the 25-byte form.  A 24-byte packet is
+treated identically to a 25-byte packet with `analog_channels = 0x00`.
+No protocol version bump is required for this extension.
+
+For scope capture, `total_samples` is the **total interleaved ADC sample
+count** across all selected channels:
+
+    total_samples = per_channel_samples × popcount(analog_channels)
+
+The firmware round-robins the selected ADC inputs in ascending index order
+(`[A0, A1, A2, A0, ...]` when all three are selected).  The libsigrok driver
+is responsible for computing `total_samples`, sending `analog_channels`, and
+demultiplexing the returned byte stream back into per-channel analog feeds.
+
+The firmware validates the payload length, stream selection, `analog_channels`
+bitmask, trigger entries, and capture sizing before starting capture.
 
 Current behavior:
 

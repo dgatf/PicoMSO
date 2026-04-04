@@ -418,6 +418,13 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     bool capture_started = false;
     capture_config_t capture_config = {.total_samples = 0u, .rate = 0u, .pre_trigger_samples = 0u, .channels = 16u};
     uint32_t i;
+    uint8_t analog_ch;
+
+    /* sizeof(req) includes the trailing analog_channels byte (25 bytes total).
+     * Also accept the legacy 24-byte form (without analog_channels) from older
+     * hosts; in that case default to ADC input 0 only. */
+    static const uint16_t legacy_len =
+        (uint16_t)(sizeof(picomso_request_capture_request_t) - 1u);
 
     active_streams = capture_controller_get_streams(&s_capture_ctrl);
 
@@ -427,9 +434,9 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         return PICOMSO_STATUS_ERR_BAD_MODE;
     }
 
-    if (hdr->length != (uint16_t)sizeof(req)) {
-        debug("\n[protocol] REQUEST_CAPTURE rejected reason=bad_payload_len payload_len=%u expected=%u", hdr->length,
-              (unsigned int)sizeof(req));
+    if (hdr->length != (uint16_t)sizeof(req) && hdr->length != legacy_len) {
+        debug("\n[protocol] REQUEST_CAPTURE rejected reason=bad_payload_len payload_len=%u expected=%u or %u",
+              hdr->length, (unsigned int)sizeof(req), (unsigned int)legacy_len);
         picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid REQUEST_CAPTURE payload length", resp);
         return PICOMSO_STATUS_ERR_BAD_LEN;
     }
@@ -440,11 +447,15 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         return PICOMSO_STATUS_ERR_UNKNOWN;
     }
 
-    memcpy(&req, payload, sizeof(req));
+    memset(&req, 0, sizeof(req));
+    memcpy(&req, payload, hdr->length);
 
-    debug("\n[protocol] REQUEST_CAPTURE request streams=%s samples=%lu rate=%lu pre=%lu triggers=%lu",
+    /* Resolve analog_channels: legacy packet has 0x00 here, treat as ADC0 only. */
+    analog_ch = (req.analog_channels == 0u) ? 0x01u : req.analog_channels;
+
+    debug("\n[protocol] REQUEST_CAPTURE request streams=%s samples=%lu rate=%lu pre=%lu triggers=%lu analog_ch=0x%02x",
           stream_name(active_streams), (unsigned long)req.total_samples, (unsigned long)req.rate,
-          (unsigned long)req.pre_trigger_samples, (unsigned long)request_trigger_count(&req));
+          (unsigned long)req.pre_trigger_samples, (unsigned long)request_trigger_count(&req), (unsigned)analog_ch);
 
     if ((active_streams & PICOMSO_STREAM_LOGIC) != 0u) {
         if (req.total_samples == 0u || req.total_samples > logic_max_samples ||
@@ -459,6 +470,13 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     }
 
     if ((active_streams & PICOMSO_STREAM_SCOPE) != 0u) {
+        if ((analog_ch & ~0x07u) != 0u) {
+            debug("\n[protocol] REQUEST_CAPTURE rejected reason=invalid_analog_channels analog_ch=0x%02x",
+                  (unsigned)analog_ch);
+            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid analog_channels bitmask", resp);
+            return PICOMSO_STATUS_ERR_BAD_LEN;
+        }
+
         if (req.total_samples == 0u || req.total_samples > scope_max_samples ||
             req.pre_trigger_samples > req.total_samples ||
             req.pre_trigger_samples > SCOPE_CAPTURE_PRE_TRIGGER_MAX_SAMPLES) {
@@ -487,13 +505,13 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
 
     /*
      * For logic captures, channels is the parallel input count (16).
-     * For scope captures, channels is the ADC input bitmask: bit 0 = ADC0,
-     * bit 1 = ADC1, bit 2 = ADC2.  The firmware always runs single-channel
-     * ADC (ADC input 0 only) by default; the driver controls per-channel
-     * sample budgets and demultiplexing on the host side.
+     * For scope captures, channels is the ADC input bitmask derived from
+     * analog_channels (bit 0 = ADC0, bit 1 = ADC1, bit 2 = ADC2).  The
+     * firmware round-robins only the selected inputs in ascending index order.
+     * The interleaved sample stream is demultiplexed by the host driver.
      */
     if ((active_streams & PICOMSO_STREAM_SCOPE) != 0u) {
-        capture_config.channels = 1u;
+        capture_config.channels = (uint)analog_ch;
     } else {
         capture_config.channels = 16u;
     }
