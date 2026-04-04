@@ -49,7 +49,7 @@ extern "C" {
 #define PICOMSO_PROTOCOL_VERSION_MAJOR 0
 
 /** Protocol minor version.  Bump when new commands are added. */
-#define PICOMSO_PROTOCOL_VERSION_MINOR 4
+#define PICOMSO_PROTOCOL_VERSION_MINOR 3
 
 /* -----------------------------------------------------------------------
  * Packet framing constants
