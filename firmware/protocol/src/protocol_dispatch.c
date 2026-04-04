@@ -440,11 +440,13 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         return PICOMSO_STATUS_ERR_UNKNOWN;
     }
 
+    memset(&req, 0, sizeof(req));
     memcpy(&req, payload, sizeof(req));
 
-    debug("\n[protocol] REQUEST_CAPTURE request streams=%s samples=%lu rate=%lu pre=%lu triggers=%lu",
+    debug("\n[protocol] REQUEST_CAPTURE request streams=%s samples=%lu rate=%lu pre=%lu triggers=%lu analog_ch=0x%02x",
           stream_name(active_streams), (unsigned long)req.total_samples, (unsigned long)req.rate,
-          (unsigned long)req.pre_trigger_samples, (unsigned long)request_trigger_count(&req));
+          (unsigned long)req.pre_trigger_samples, (unsigned long)request_trigger_count(&req),
+          (unsigned)req.analog_channels);
 
     if ((active_streams & PICOMSO_STREAM_LOGIC) != 0u) {
         if (req.total_samples == 0u || req.total_samples > logic_max_samples ||
@@ -459,6 +461,15 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     }
 
     if ((active_streams & PICOMSO_STREAM_SCOPE) != 0u) {
+        const uint8_t analog_ch = (req.analog_channels == 0u) ? 0x01u : req.analog_channels;
+
+        if ((analog_ch & ~0x07u) != 0u) {
+            debug("\n[protocol] REQUEST_CAPTURE rejected reason=invalid_analog_channels analog_ch=0x%02x",
+                  (unsigned)analog_ch);
+            picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid analog_channels bitmask", resp);
+            return PICOMSO_STATUS_ERR_BAD_LEN;
+        }
+
         if (req.total_samples == 0u || req.total_samples > scope_max_samples ||
             req.pre_trigger_samples > req.total_samples ||
             req.pre_trigger_samples > SCOPE_CAPTURE_PRE_TRIGGER_MAX_SAMPLES) {
@@ -484,6 +495,18 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     capture_config.rate = req.rate;
     capture_config.total_samples = req.total_samples;
     capture_config.pre_trigger_samples = req.pre_trigger_samples;
+
+    /*
+     * For logic capture, channels means the number of parallel logic inputs (16).
+     * For scope capture, channels is the analog ADC input bitmask (from analog_channels).
+     * In mixed mode the same capture_config is used for both backends; the scope
+     * backend reads only the channels field while the logic backend ignores it.
+     */
+    if ((active_streams & PICOMSO_STREAM_SCOPE) != 0u) {
+        capture_config.channels = (req.analog_channels == 0u) ? 0x01u : (uint)req.analog_channels;
+    } else {
+        capture_config.channels = 16u;
+    }
 
     mixed_capture_reset_tracking();
     capture_controller_set_state(&s_capture_ctrl, CAPTURE_RUNNING);

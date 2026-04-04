@@ -8,7 +8,7 @@ This document describes the current protocol implemented under
 | Constant | Value |
 |---|---|
 | `PICOMSO_PROTOCOL_VERSION_MAJOR` | `0` |
-| `PICOMSO_PROTOCOL_VERSION_MINOR` | `3` |
+| `PICOMSO_PROTOCOL_VERSION_MINOR` | `4` |
 
 ## Packet header
 
@@ -133,6 +133,7 @@ Request payload:
 | 4 | 4 | `rate` |
 | 8 | 4 | `pre_trigger_samples` |
 | 12 | 12 | `trigger[4]` |
+| 24 | 1 | `analog_channels` |
 
 Each trigger entry is:
 
@@ -142,8 +143,29 @@ Each trigger entry is:
 | 1 | 1 | `pin` |
 | 2 | 1 | `match` |
 
+`analog_channels` is a bitmask of ADC inputs to enable for scope capture:
+
+- bit 0 – ADC input 0 (GPIO 26)
+- bit 1 – ADC input 1 (GPIO 27)
+- bit 2 – ADC input 2 (GPIO 28)
+
+A value of `0x00` is treated as `0x01` (single channel, ADC input 0) for
+backward compatibility.  Only bits 0–2 are valid; any other bits cause the
+firmware to reject the request.
+
+For scope capture, `total_samples` is the **total interleaved ADC sample
+count** across all enabled channels:
+
+    total_samples = per_channel_samples × popcount(analog_channels)
+
+The maximum is `SCOPE_CAPTURE_MAX_SAMPLES` (50000) regardless of how many
+channels are active.  The host driver is responsible for converting
+user-facing per-channel sample counts to this interleaved total and for
+demultiplexing the returned byte stream.  The firmware delivers samples in
+fixed round-robin order: ADC0, ADC1, …, ADC0, ADC1, ….
+
 The firmware validates the payload length, stream selection, trigger entries,
-and capture sizing before starting capture.
+`analog_channels` bitmask, and capture sizing before starting capture.
 
 Current behavior:
 
