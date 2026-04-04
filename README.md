@@ -62,6 +62,14 @@ Additional documentation:
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/protocol.md`](docs/protocol.md)
 
+## Sample-rate limits
+
+When any analog channel is enabled, the maximum supported samplerate is
+**2 MS/s**. Requests above this limit are rejected by the driver with an
+argument error.
+
+Logic-only captures can still use higher samplerates, up to **200 MHz**.
+
 ## libsigrok support
 
 Until PicoMSO support is merged upstream, users need to build and install the
