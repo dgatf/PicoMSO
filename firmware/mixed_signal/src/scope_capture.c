@@ -41,6 +41,8 @@
 #define GPIO_COUPLING_CH2_DC 21u
 #define GPIO_CALIBRATION 22u
 
+#define SCOPE_CAPTURE_RATE_CHANGE_CLK_HZ 500000u
+
 typedef enum scope_capture_phase_t {
     SCOPE_CAPTURE_PHASE_DISARMED = 0,
     SCOPE_CAPTURE_PHASE_ARMED,
@@ -180,10 +182,9 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
         s_trigger_gate = *trigger_gate;
         s_activation_armed = false;
 
-        debug("\n[scope] prepare request phase=%s samples=%lu rate=%lu pre=%lu channels=0x%02x gate=%s",
+        debug("\n[scope] prepare request phase=%s samples=%lu rate=%lu pre=%lu gate=%s",
               scope_capture_phase_name(s_phase), (unsigned long)samples, (unsigned long)rate,
-              (unsigned long)pre_trigger_samples, s_scope_capture_config.channels,
-              s_trigger_gate.enabled ? "logic" : "none");
+              (unsigned long)pre_trigger_samples, s_trigger_gate.enabled ? "logic" : "none");
     }
 
     scope_capture_configure_adc();
@@ -253,25 +254,13 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
     irq_set_exclusive_handler(DMA_IRQ_1, scope_capture_complete_handler);
     irq_set_enabled(DMA_IRQ_1, true);
 
-    /* Select the lowest ADC input in the channel mask so that round-robin
-     * starts deterministically at the first selected channel (e.g. ADC1
-     * when only bit 1 is set). */
-    {
-        uint first_input = 0u;
-        uint ch = s_scope_capture_config.channels;
-        while (ch != 0u && (ch & 1u) == 0u) {
-            ch >>= 1u;
-            first_input++;
-        }
-        adc_select_input(first_input);
-    }
     adc_set_round_robin(s_scope_capture_config.channels);
 
     s_phase = SCOPE_CAPTURE_PHASE_ARMED;
 
-    debug("\n[scope] prepare armed phase=%s samples=%u rate=%u pre=%u post=%u channels=0x%02x gate=%s",
+    debug("\n[scope] prepare armed phase=%s samples=%u rate=%u pre=%u post=%u gate=%s",
           scope_capture_phase_name(s_phase), s_scope_capture_config.total_samples, s_rate, s_pre_trigger_samples,
-          s_post_trigger_samples, s_scope_capture_config.channels, s_trigger_gate.enabled ? "logic" : "none");
+          s_post_trigger_samples, s_trigger_gate.enabled ? "logic" : "none");
 
     return true;
 }
@@ -433,7 +422,7 @@ void oscilloscope_set_samplerate(uint samplerate) {
         samplerate = 100000u;
     }
 
-    if (samplerate > 500000u) {
+    if (samplerate >= SCOPE_CAPTURE_RATE_CHANGE_CLK_HZ) {
         clk_div = (float)clock_get_hz(clk_sys) / (float)samplerate - 1;
         *s_clk_adc_ctrl = 0x820u;  // clk_sys
     } else {
@@ -447,7 +436,7 @@ void oscilloscope_set_samplerate(uint samplerate) {
     }
 
     debug("\n[scope] samplerate configured clk_div=%.2f rate=%u source=%s", clk_div, samplerate,
-          samplerate > 500000u ? "clk_sys" : "clk_usb");
+          samplerate >= SCOPE_CAPTURE_RATE_CHANGE_CLK_HZ ? "clk_sys" : "clk_usb");
 
     adc_set_clkdiv(clk_div);
 }
