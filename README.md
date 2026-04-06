@@ -15,8 +15,10 @@ and oscilloscope functionality in a single firmware and host integration stack.
 
 ### Oscilloscope
 
-- **Channels:** 1 analog channel
+- **Channels:** 1 or 2 analog channels in v1.0
 - **Maximum sample rate:** up to **2 MS/s**
+- **Capture depth:** up to **40 ksamples per enabled analog channel**
+- **Resolution:** **12-bit** with 1 analog channel, **8-bit** internal capture with 2 analog channels
 
 ## PulseView example
 
@@ -45,6 +47,12 @@ Capture mixed-signal data from logic channel `D0` and analog channel `A0`:
 sigrok-cli -d picomso --channels D0,A0 --samples 1000 --config samplerate=5k
 ```
 
+Capture two analog channels:
+
+```bash
+sigrok-cli -d picomso --channels A0,A1 --samples 1000 --config samplerate=5k
+```
+
 ## Build
 
 Initialize submodules, then build the firmware application from the repository
@@ -64,9 +72,16 @@ Additional documentation:
 
 ## Sample-rate limits
 
-When any analog channel is enabled, the maximum supported samplerate is
-**2 MS/s**. Requests above this limit are rejected by the driver with an
-argument error.
+PicoMSO v1.0 supports both single-channel and dual-channel analog capture.
+With 1 analog channel enabled, captures are 12-bit. With 2 analog channels
+enabled, the ADC runs in round-robin mode across the enabled inputs, captures
+each channel at 8-bit internally, and still returns samples through the
+existing 16-bit scope stream format used by current host tools.
+
+From the user's point of view, the configured analog samplerate and the
+**40 ksamples** capture depth apply per enabled analog channel. The maximum
+supported analog samplerate remains **2 MS/s**. Requests above this limit are
+rejected by the driver with an argument error.
 
 Logic-only captures can still use higher samplerates, up to **200 MHz**.
 

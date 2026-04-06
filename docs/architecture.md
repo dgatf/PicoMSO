@@ -62,6 +62,15 @@ protocol layer, while each capture backend keeps its own internal runtime state.
 - `logic_capture.*`
 - `scope_capture.*`
 
+For the current v1.0 scope path, the scope backend supports one- and
+two-channel analog capture:
+
+- 1 analog channel uses 12-bit capture
+- 2 analog channels use round-robin/interleaved ADC capture with 8-bit
+  internal samples
+- scope data is still read out through the existing 16-bit scope stream format
+- user-facing analog depth is 40 ksamples per enabled analog channel
+
 Both backends implement the same high-level lifecycle:
 
 1. accept a `REQUEST_CAPTURE`
@@ -75,7 +84,9 @@ Each backend owns its own capture progress, finalized sample storage, and read
 offset state used when serving host block-read requests.
 
 In mixed-signal mode, logic and scope data are handled as two independent data
-streams. They are not interleaved into a single combined payload.
+streams. They are not interleaved into a single combined payload. When two
+analog channels are enabled, the interleaving happens only inside the scope
+stream, which alternates the enabled analog channels in ADC round-robin order.
 
 ## Protocol layer
 

@@ -152,20 +152,32 @@ Each trigger entry is:
 Only bits 0–2 are valid; other bits are rejected.  A value of `0x00` is
 treated as `0x01` (ADC input 0 only) on the firmware side.
 
+The bitmask format can represent ADC inputs A0-A2. The current v1.0
+user-facing scope behavior documented here covers one- and two-channel analog
+capture.
+
+For current v1.0 scope operation, the user-facing analog modes are:
+
+- 1 enabled analog channel: 12-bit capture
+- 2 enabled analog channels: round-robin/interleaved capture with 8-bit
+  internal samples
+
+Dual-channel captures are still returned in the existing 16-bit scope stream
+format after firmware-side expansion so current host integrations can keep the
+same transport format.
+
 **Backward compatibility**: the firmware accepts both the 24-byte form
 (without `analog_channels`) and the 25-byte form.  A 24-byte packet is
 treated identically to a 25-byte packet with `analog_channels = 0x00`.
 No protocol version bump is required for this extension.
 
-For scope capture, `total_samples` is the **total interleaved ADC sample
-count** across all selected channels:
-
-    total_samples = per_channel_samples × popcount(analog_channels)
-
-The firmware round-robins the selected ADC inputs in ascending index order
-(`[A0, A1, A2, A0, ...]` when all three are selected).  The libsigrok driver
-is responsible for computing `total_samples`, sending `analog_channels`, and
-demultiplexing the returned byte stream back into per-channel analog feeds.
+For current v1.0 host-facing behavior, analog capture depth is exposed as
+**40 ksamples per enabled analog channel**. When two analog channels are
+enabled, the firmware samples them in ascending-index round-robin order and the
+returned scope stream alternates channel samples (`[A0, A1, A0, A1, ...]`).
+Host software is responsible for sending a consistent `analog_channels`
+selection and deinterleaving the returned scope stream back into per-channel
+analog feeds.
 
 The firmware validates the payload length, stream selection, `analog_channels`
 bitmask, trigger entries, and capture sizing before starting capture.
