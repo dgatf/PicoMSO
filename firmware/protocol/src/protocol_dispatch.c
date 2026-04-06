@@ -49,14 +49,6 @@
 #define PICOMSO_LOGIC_TRIGGER_PIN_COUNT 16u
 
 /* -----------------------------------------------------------------------
- * Static device capability bitmap.
- *
- * In a future phase this may be read from hardware-detection logic.
- * ----------------------------------------------------------------------- */
-
-#define PICOMSO_STATIC_CAPABILITIES (PICOMSO_CAP_LOGIC | PICOMSO_CAP_SCOPE)
-
-/* -----------------------------------------------------------------------
  * Module-level capture controller instance.
  *
  * Starts in PICOMSO_STREAM_NONE / CAPTURE_IDLE.
@@ -285,13 +277,38 @@ picomso_status_t picomso_handle_get_info(const picomso_packet_header_t *hdr, con
  * GET_CAPABILITIES handler
  * ----------------------------------------------------------------------- */
 
+static void picomso_fill_capabilities(picomso_capabilities_t *caps) {
+    if (caps == NULL) return;
+
+    caps->version = 1u;
+    caps->size = (uint8_t)sizeof(*caps);
+
+    caps->max_logic_channels = 16u;
+    caps->max_analog_channels = 2u;
+
+    caps->max_samplerate_logic = 200000000u;
+    caps->max_samplerate_scope = 2000000u;
+
+    caps->capabilities_flags = 0;
+
+#if PICO_RP2040
+    caps->max_samples_logic = 40000u;
+    caps->max_samples_scope = 40000u;
+#elif PICO_RP2350
+    caps->max_samples_logic = 80000u;
+    caps->max_samples_scope = 80000u;
+    caps->capabilities_flags = PICOMSO_CAP_ANALOG_TRIGGER;
+#endif
+}
+
 picomso_status_t picomso_handle_get_capabilities(const picomso_packet_header_t *hdr, const uint8_t *payload,
                                                  picomso_response_t *resp) {
-    picomso_capabilities_response_t caps;
+    picomso_capabilities_t caps;
 
     (void)payload;
 
-    caps.capabilities = PICOMSO_STATIC_CAPABILITIES;
+    memset(&caps, 0, sizeof(caps));
+    picomso_fill_capabilities(&caps);
 
     build_response(hdr, PICOMSO_MSG_ACK, &caps, (uint16_t)sizeof(caps), resp);
     return PICOMSO_STATUS_OK;

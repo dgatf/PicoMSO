@@ -1,0 +1,23 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "rp2040",
+      "displayName": "RP2040",
+      "generator": "Ninja",
+      "binaryDir": "../../build/rp2040",
+      "cacheVariables": {
+        "PICO_PLATFORM": "rp2040"
+      }
+    },
+    {
+      "name": "rp2350",
+      "displayName": "RP2350",
+      "generator": "Ninja",
+      "binaryDir": "../../build/rp2350",
+      "cacheVariables": {
+        "PICO_PLATFORM": "rp2350"
+      }
+    }
+  ]
+}

@@ -61,8 +61,7 @@ extern "C" {
  */
 #define PICOMSO_PACKET_MAGIC UINT16_C(0x4D53)
 
-#define PICOMSO_CAP_LOGIC UINT32_C(1 << 0)
-#define PICOMSO_CAP_SCOPE UINT32_C(1 << 1)
+#define PICOMSO_CAP_ANALOG_TRIGGER UINT32_C(1 << 0)
 
 /** Minimum number of bytes a valid packet must supply. */
 #define PICOMSO_PACKET_HEADER_SIZE ((size_t)sizeof(picomso_packet_header_t))

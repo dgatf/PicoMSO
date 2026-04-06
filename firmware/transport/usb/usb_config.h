@@ -108,8 +108,13 @@ static const struct usb_device_descriptor device_descriptor = {
     .bDeviceSubClass = 0,    // No subclass
     .bDeviceProtocol = 0,    // No protocol
     .bMaxPacketSize0 = 64,   // Max packet size for ep0
-    .idVendor = 0x04b5,      // Vendor id; update to a registered VID before production
-    .idProduct = 0x2041,     // PicoMSO product ID
+#if PICO_RP2040
+    .idVendor = 0x2E8A,      // Vendor id; update to a registered VID before production
+    .idProduct = 0x2040,     // PicoMSO product ID
+#elif PICO_RP2350
+    .idVendor = 0x2E8A,      // Vendor id; update to a registered VID before production
+    .idProduct = 0x2350,     // PicoMSO product ID
+#endif
     .bcdDevice = 0,          // No device revision number
     .iManufacturer = 1,      // Manufacturer string index
     .iProduct = 2,           // Product string index
@@ -142,11 +147,19 @@ static const unsigned char lang_descriptor[] = {
     0x09, 0x04  // language id = us english
 };
 
+#if PICO_RP2040
 static const unsigned char *descriptor_strings[] = {
-    (unsigned char *)"Raspberry Pi",  // Vendor
-    (unsigned char *)"PicoMSO",       // Product
-    (unsigned char *)"0"              // Serial
+    (unsigned char *)"PicoMSO",        // Vendor
+    (unsigned char *)"PicoMSO-RP2040", // Product
+    (unsigned char *)"0"               // Serial
 };
+#elif PICO_RP2350
+static const unsigned char *descriptor_strings[] = {
+    (unsigned char *)"PicoMSO",        // Vendor
+    (unsigned char *)"PicoMSO-RP2350", // Product
+    (unsigned char *)"0"               // Serial
+};
+#endif
 
 #ifdef __cplusplus
 }

@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "${workspaceFolder}/firmware/app"
+      "cmake.useCMakePresets": "always",
+      "cmake.sourceDirectory": "${workspaceFolder}/firmware/app"
 }
