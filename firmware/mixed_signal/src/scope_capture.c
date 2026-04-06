@@ -1,19 +1,10 @@
 /*
- * PicoMSO - RP2040 Mixed Signal Oscilloscope
- * Copyright (C) 2024 Daniel Gorbea <danielgorbea@hotmail.com>
+ * PicoMSO - Mixed Signal Oscilloscope
+ * Copyright (C) 2026 Daniel Gorbea
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * the Free Software Foundation, version 3.
  */
 
  #include "scope_capture.h"
@@ -30,9 +21,15 @@
 
 #define SCOPE_CAPTURE_ADC_GPIO 26u
 
-#define SCOPE_PRE_TRIGGER_RING_BITS 10
+#define SCOPE_PRE_TRIGGER_RING_BITS 12
 #define SCOPE_PRE_TRIGGER_BUFFER_SIZE (1u << SCOPE_PRE_TRIGGER_RING_BITS)
+
+#if PICO_RP2040
 #define SCOPE_POST_TRIGGER_BUFFER_SIZE 40000u
+#elif PICO_RP2350
+#define SCOPE_POST_TRIGGER_BUFFER_SIZE 80000u
+#endif
+
 #define SCOPE_PRE_TRIGGER_RING_TRANSFER_COUNT \
     ((0xffffffffu / SCOPE_PRE_TRIGGER_BUFFER_SIZE) * SCOPE_PRE_TRIGGER_BUFFER_SIZE)
 

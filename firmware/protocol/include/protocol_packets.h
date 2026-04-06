@@ -37,12 +37,20 @@ typedef struct {
  * GET_CAPABILITIES
  * ----------------------------------------------------------------------- */
 
-#define PICOMSO_CAP_LOGIC UINT32_C(1 << 0)
-#define PICOMSO_CAP_SCOPE UINT32_C(1 << 1)
+typedef struct __attribute__((packed)) {
+    uint8_t version;                 // = 1
+    uint8_t size;                    // sizeof(picomso_capabilities_v1_t)
 
-typedef struct {
-    uint32_t capabilities;
-} __attribute__((packed)) picomso_capabilities_response_t;
+    uint8_t capabilities_flags;      // bitmask of PICOMSO_CAP_* flags (reserved for future use; currently always 0)
+    uint8_t max_logic_channels;      // e.g. 16
+    uint8_t max_analog_channels;     // e.g. 1
+
+    uint32_t max_samplerate_logic;   // Hz
+    uint32_t max_samplerate_scope;   // Hz
+
+    uint32_t max_samples_logic;      // samples
+    uint32_t max_samples_scope;      // samples
+} picomso_capabilities_t;
 
 /* -----------------------------------------------------------------------
  * GET_STATUS

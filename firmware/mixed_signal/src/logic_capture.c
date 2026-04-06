@@ -1,26 +1,17 @@
 /*
- * PicoMSO - RP2040 Mixed Signal Oscilloscope
- * Copyright (C) 2024 Daniel Gorbea <danielgorbea@hotmail.com>
+ * PicoMSO - Mixed Signal Oscilloscope
+ * Copyright (C) 2026 Daniel Gorbea
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * the Free Software Foundation, version 3.
  */
 
 #include "logic_capture.h"
 
 #include <string.h>
 
-#include "capture.pio.h"
+#include "logic_capture.pio.h"
 #include "capture_controller.h"
 #include "debug.h"
 #include "hardware/clocks.h"
@@ -30,11 +21,16 @@
 #include "pico/stdlib.h"
 
 #define LOGIC_CAPTURE_CHANNEL_COUNT 16u
-#define LOGIC_CAPTURE_TRIGGER_TIMEOUT_SPINS 4096u
 
-#define LOGIC_PRE_TRIGGER_RING_BITS 10
+#define LOGIC_PRE_TRIGGER_RING_BITS 12
 #define LOGIC_PRE_TRIGGER_BUFFER_SIZE (1u << LOGIC_PRE_TRIGGER_RING_BITS)
+
+#if PICO_RP2040
 #define LOGIC_POST_TRIGGER_BUFFER_SIZE 40000u
+#elif PICO_RP2350
+#define LOGIC_POST_TRIGGER_BUFFER_SIZE 80000u
+#endif
+
 #define LOGIC_PRE_TRIGGER_RING_TRANSFER_COUNT \
     ((0xffffffffu / LOGIC_PRE_TRIGGER_BUFFER_SIZE) * LOGIC_PRE_TRIGGER_BUFFER_SIZE)
 

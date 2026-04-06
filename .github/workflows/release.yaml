@@ -4,9 +4,6 @@ on:
   release:
     types: [published]
 
-env:
-  FIRMWARE_FILENAME: picomso_${{ github.ref_name }}.uf2
-
 permissions:
   contents: write
   pages: write
@@ -15,6 +12,17 @@ permissions:
 jobs:
   firmware:
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - board: pico
+            suffix: rp2040
+          - board: pico2
+            suffix: rp2350
+
+    env:
+      FIRMWARE_FILENAME: picomso-${{ matrix.suffix }}-${{ github.ref_name }}.uf2
 
     steps:
       - name: Checkout
@@ -30,8 +38,8 @@ jobs:
         uses: samyarsadat/Pico-Build-Action@v1
         with:
           source_dir: "firmware/app"
-          output_dir: "build/picomso"
-          cmake_args: "-DCMAKE_BUILD_TYPE=Release"
+          output_dir: "build"
+          cmake_args: "-DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=${{ matrix.board }}"
 
       - name: Locate firmware
         run: |
@@ -40,7 +48,7 @@ jobs:
       - name: Prepare release artifact
         run: |
           mkdir -p dist
-          cp firmware/app/build/picomso/picomso.uf2 dist/${FIRMWARE_FILENAME}
+          cp firmware/app/build/*.uf2 dist/${{ env.FIRMWARE_FILENAME }}
 
       - name: Release
         uses: softprops/action-gh-release@v2

@@ -1,0 +1,49 @@
+/*
+ * PicoMSO - Mixed Signal Oscilloscope
+ * Copyright (C) 2026 Daniel Gorbea
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, version 3.
+ */
+ 
+.program capture
+.wrap_target
+    nop // in pins pin_count
+.wrap
+
+.program trigger_level_high
+    wait 1 pin 0 
+    wait 1 pin 0 
+    push
+halt:
+    jmp halt
+
+.program trigger_level_low
+    wait 0 pin 0
+    wait 0 pin 0
+    push
+halt:
+    jmp halt
+
+.program trigger_edge_high
+    wait 0 pin 0
+    wait 1 pin 0
+    push
+halt:
+    jmp halt
+
+.program trigger_edge_low
+    wait 1 pin 0
+    wait 0 pin 0
+    push
+halt:
+    jmp halt
+
+.program mux
+    pull
+    mov isr osr
+    push
+    irq 0
+halt:
+    jmp halt

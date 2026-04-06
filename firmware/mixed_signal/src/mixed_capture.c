@@ -1,4 +1,13 @@
-#include "mixed_capture.h"
+/*
+ * PicoMSO - Mixed Signal Oscilloscope
+ * Copyright (C) 2026 Daniel Gorbea
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, version 3.
+ */
+
+ #include "mixed_capture.h"
 
 #include "hardware/adc.h"
 #include "hardware/pio.h"

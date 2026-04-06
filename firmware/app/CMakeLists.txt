@@ -1,17 +1,28 @@
 # PicoMSO firmware application
 #
 # Standalone Pico SDK project for the current PicoMSO firmware path.
+# Supports RP2040 and RP2350 builds.
 #
 # Build (from the repository root):
 #
 #   git submodule update --init --recursive
+#
+#   # RP2040
 #   cmake -S firmware/app \
-#         -B build/picomso
-#   cmake --build build/picomso
+#         -B build/rp2040
+#   cmake --build build/rp2040
+#
+#   # RP2350
+#   cmake -S firmware/app \
+#         -B build/rp2350 \
+#         -DPICO_BOARD=pico2
+#   cmake --build build/rp2350
 #
 # Produces:
-#   build/picomso/picomso.elf
-#   build/picomso/picomso.uf2
+#   build/rp2040/picomso.elf
+#   build/rp2040/picomso.uf2
+#   build/rp2350/picomso.elf
+#   build/rp2350/picomso.uf2
 
 cmake_minimum_required(VERSION 3.12)
 

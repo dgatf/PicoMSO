@@ -21,6 +21,19 @@ jobs:
   publish:
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        include:
+          - board: pico
+            suffix: rp2040
+            first: true
+          - board: pico2
+            suffix: rp2350
+            first: false
+
+    env:
+      FIRMWARE_FILENAME: picomso-${{ matrix.suffix }}.uf2
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,21 +50,22 @@ jobs:
         uses: samyarsadat/Pico-Build-Action@v1
         with:
           source_dir: "firmware/app"
-          output_dir: "build/picomso"
-          cmake_args: "-DCMAKE_BUILD_TYPE=Release"
+          output_dir: "build"
+          cmake_args: "-DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=${{ matrix.board }}"
 
       - name: Prepare artifact
         run: |
           mkdir -p dist
-          cp firmware/app/build/picomso/picomso.uf2 dist/picomso.uf2
+          cp firmware/app/build/*.uf2 dist/${{ env.FIRMWARE_FILENAME }}
 
       - name: Generate attestation
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: dist/picomso.uf2
+          subject-path: dist/${{ env.FIRMWARE_FILENAME }}
           github-token: ${{ secrets.TOKEN }}
 
       - name: Write release body
+        if: matrix.first
         run: |
           cat > release_body.md << EOF
           Development (auto)
@@ -61,7 +75,8 @@ jobs:
           - commit-url: "https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
           EOF
 
-      - name: Publish firmware to Development release
+      - name: Publish first artifact (creates release)
+        if: matrix.first
         uses: ncipollo/release-action@v1
         with:
           tag: dev-latest
@@ -69,8 +84,20 @@ jobs:
           prerelease: true
           allowUpdates: true
           commit: ${{ github.sha }}
-          artifacts: dist/picomso.uf2
-          artifactContentType: application/octet-stream
+          artifacts: dist/${{ env.FIRMWARE_FILENAME }}
           replacesArtifacts: true
           generateReleaseNotes: false
           bodyFile: release_body.md
+
+      - name: Publish second artifact (append)
+        if: ${{ !matrix.first }}
+        uses: ncipollo/release-action@v1
+        with:
+          tag: dev-latest
+          name: Development (auto)
+          prerelease: true
+          allowUpdates: true
+          commit: ${{ github.sha }}
+          artifacts: dist/${{ env.FIRMWARE_FILENAME }}
+          replacesArtifacts: false
+          generateReleaseNotes: false
