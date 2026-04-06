@@ -85,11 +85,25 @@ typedef struct {
     uint8_t match;
 } __attribute__((packed)) picomso_trigger_config_t;
 
+/**
+ * analog_channels is a bitmask of ADC inputs to enable for scope capture.
+ * Bit 0 = ADC input 0 (GPIO 26), bit 1 = ADC input 1 (GPIO 27),
+ * bit 2 = ADC input 2 (GPIO 28).  Only bits 0-2 are valid.
+ * A value of 0x00 is treated as 0x01 (ADC input 0 only) for backward
+ * compatibility.  The firmware round-robins the selected inputs in
+ * ascending index order; total_samples is the total interleaved count
+ * across all selected channels.
+ *
+ * Hosts that do not set this field may send the 24-byte form of the
+ * packet (without this trailing byte); the firmware then defaults to
+ * ADC input 0 only.
+ */
 typedef struct {
     uint32_t total_samples;
     uint32_t rate;
     uint32_t pre_trigger_samples;
     picomso_trigger_config_t trigger[PICOMSO_REQUEST_CAPTURE_TRIGGER_COUNT];
+    uint8_t analog_channels;
 } __attribute__((packed)) picomso_request_capture_request_t;
 
 /* -----------------------------------------------------------------------
