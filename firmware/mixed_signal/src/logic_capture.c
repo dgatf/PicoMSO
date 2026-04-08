@@ -20,7 +20,7 @@
 
 #include <string.h>
 
-#include "capture.pio.h"
+#include "logic_capture.pio.h"
 #include "capture_controller.h"
 #include "debug.h"
 #include "hardware/clocks.h"
