@@ -38,7 +38,9 @@ typedef enum trigger_match_t {
     TRIGGER_TYPE_LEVEL_LOW,
     TRIGGER_TYPE_LEVEL_HIGH,
     TRIGGER_TYPE_EDGE_LOW,
-    TRIGGER_TYPE_EDGE_HIGH
+    TRIGGER_TYPE_EDGE_HIGH,
+    TRIGGER_TYPE_LEVEL_HIGHER,
+    TRIGGER_TYPE_LEVEL_LOWER
 } trigger_match_t;
 
 // Single-channel trigger configuration

@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
- #include "scope_capture.h"
+#include "scope_capture.h"
 
 #include <string.h>
 
@@ -27,6 +27,7 @@
 #include "hardware/irq.h"
 #include "hardware/pio.h"
 #include "pico/stdlib.h"
+#include "scope_trigger.pio.h"
 
 #define SCOPE_CAPTURE_ADC_GPIO 26u
 
@@ -84,6 +85,19 @@ static const uint s_dma_channel_adc_post = 8u;
 static const uint s_dma_channel_reload_adc_counter = 9u;
 static const uint s_dma_channel_dma_pre = 10u;
 static const uint s_dma_channel_dma_post = 11u;
+#ifdef PICO_RP2350
+static const uint s_dma_channel_trigger_in = 12u;
+static const uint s_dma_channel_trigger_out = 13u;
+static const uint s_dma_channel_trigger = 14u;
+static uint s_offset_trigger;
+static uint s_offset_mux;
+static pio_sm_config s_pio_trigger;
+static pio_sm_config s_pio_mux;
+static const uint s_sm_pio_trigger = 0u;
+static const uint s_sm_pio_mux = 1u;
+static uint s_trigger_channel;
+static uint s_trigger_set = false;
+#endif
 static const uint s_reload_counter = SCOPE_PRE_TRIGGER_RING_TRANSFER_COUNT;
 
 /* 12-bit path storage */
@@ -218,6 +232,10 @@ void scope_capture_reset(void) {
     s_activation_armed = false;
     s_trigger_gate.enabled = false;
     s_trigger_gate.dreq = 0u;
+    s_dma_pre_mask = 1u << 7u;
+#ifdef PICO_RP2350
+    s_trigger_set = false;
+#endif
     s_sample_width = SCOPE_SAMPLE_WIDTH_12;
     s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
 
@@ -346,7 +364,90 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
         }
     }
 
-    if (s_trigger_gate.enabled) {
+#ifdef PICO_RP2350
+    if (config->trigger[3].is_enabled == true) {
+        s_trigger_channel = 0 + 16;  // adc 0
+        dma_channel_abort(s_dma_channel_adc);
+        // PIO trigger
+        if (config->trigger[3].match == TRIGGER_TYPE_LEVEL_HIGHER) {
+            s_offset_trigger = pio_add_program(pio1, &scope_trigger_high_program);
+            s_pio_trigger = scope_trigger_high_program_get_default_config(s_offset_trigger);
+        } else if (config->trigger[3].match == TRIGGER_TYPE_LEVEL_LOWER) {
+            s_offset_trigger = pio_add_program(pio1, &scope_trigger_low_program);
+            s_pio_trigger = scope_trigger_low_program_get_default_config(s_offset_trigger);
+        } else {
+            debug("\n[scope] prepare rejected reason=invalid_trigger_match match=%u", config->trigger[3].match);
+            return false;
+        }
+        s_trigger_set = true;
+        s_dma_pre_mask =
+            (1u << s_dma_channel_trigger_in) | (1u << s_dma_channel_trigger_out) | (1u << s_dma_channel_trigger);
+        sm_config_set_in_shift(&s_pio_trigger, false, false, 32);
+        sm_config_set_out_shift(&s_pio_trigger, false, false, 32);
+        sm_config_set_fifo_join(&s_pio_trigger, PIO_FIFO_JOIN_NONE);
+        pio_sm_init(pio1, s_sm_pio_trigger, s_offset_trigger, &s_pio_trigger);
+        pio_sm_put_blocking(pio1, s_sm_pio_trigger, 50 /*config->trigger[3].threshold*/);
+
+        s_offset_mux = pio_add_program(pio1, &scope_mux_program);
+        s_pio_mux = scope_mux_program_get_default_config(s_offset_mux);
+        pio_sm_init(pio1, s_sm_pio_mux, s_offset_mux, &s_pio_mux);
+
+        // DMA trigger in
+        dma_channel_config dma_trigger_in = dma_channel_get_default_config(s_dma_channel_trigger_in);
+        channel_config_set_transfer_data_size(&dma_trigger_in, DMA_SIZE_32);
+        channel_config_set_write_increment(&dma_trigger_in, false);
+        channel_config_set_read_increment(&dma_trigger_in, false);
+        channel_config_set_dreq(&dma_trigger_in, DREQ_ADC);
+        dma_channel_configure(s_dma_channel_trigger_in, &dma_trigger_in, &pio1->txf[s_sm_pio_trigger], &adc_hw->fifo,
+                              s_reload_counter, false);
+
+        // DMA trigger out
+        dma_channel_config dma_trigger_out = dma_channel_get_default_config(s_dma_channel_trigger_out);
+        channel_config_set_transfer_data_size(&dma_trigger_out, DMA_SIZE_32);
+        channel_config_set_write_increment(&dma_trigger_out, true);
+        channel_config_set_read_increment(&dma_trigger_out, false);
+        channel_config_set_dreq(&dma_trigger_out, pio_get_dreq(pio1, s_sm_pio_trigger, false));
+        if (s_sample_width == SCOPE_SAMPLE_WIDTH_8) {
+            channel_config_set_transfer_data_size(&dma_trigger_out, DMA_SIZE_8);
+            channel_config_set_ring(&dma_trigger_out, true, SCOPE_PRE_TRIGGER_RING_BITS);
+            dma_channel_configure(s_dma_channel_trigger_out, &dma_trigger_out, s_pre_trigger_buffer_8,
+                                  &pio1->rxf[s_sm_pio_trigger], s_reload_counter, false);
+        } else {
+            channel_config_set_transfer_data_size(&dma_trigger_out, DMA_SIZE_16);
+            channel_config_set_ring(&dma_trigger_out, true, SCOPE_PRE_TRIGGER_RING_BITS + 1u);
+            dma_channel_configure(s_dma_channel_trigger_out, &dma_trigger_out, s_pre_trigger_buffer_12,
+                                  &pio1->rxf[s_sm_pio_trigger], s_reload_counter, false);
+        }
+
+        // DMA trigger detected
+        dma_channel_config dma_trigger = dma_channel_get_default_config(s_dma_channel_trigger);
+        channel_config_set_transfer_data_size(&dma_trigger, DMA_SIZE_32);
+        channel_config_set_write_increment(&dma_trigger, false);
+        channel_config_set_read_increment(&dma_trigger, false);
+        channel_config_set_dreq(&dma_trigger, pio_get_dreq(pio1, s_sm_pio_mux, false));
+        dma_channel_configure(s_dma_channel_trigger, &dma_trigger, &pio0->txf[3u], &s_trigger_channel, s_reload_counter,
+                              false);
+    }
+#endif
+
+    if (s_trigger_set) {
+        dma_channel_config dma_cfg_pre = dma_channel_get_default_config(s_dma_channel_dma_pre);
+        dma_channel_config dma_cfg_post = dma_channel_get_default_config(s_dma_channel_dma_post);
+
+        channel_config_set_transfer_data_size(&dma_cfg_pre, DMA_SIZE_32);
+        channel_config_set_write_increment(&dma_cfg_pre, false);
+        channel_config_set_read_increment(&dma_cfg_pre, false);
+        channel_config_set_dreq(&dma_cfg_pre, s_trigger_gate.dreq);
+        channel_config_set_chain_to(&dma_cfg_pre, s_dma_channel_dma_post);
+        dma_channel_configure(s_dma_channel_dma_pre, &dma_cfg_pre, &dma_hw->abort, &s_dma_pre_mask, 1u, false);
+
+        channel_config_set_transfer_data_size(&dma_cfg_post, DMA_SIZE_32);
+        channel_config_set_write_increment(&dma_cfg_post, false);
+        channel_config_set_read_increment(&dma_cfg_post, false);
+        dma_channel_configure(s_dma_channel_dma_post, &dma_cfg_post, &dma_hw->multi_channel_trigger, &s_dma_post_mask,
+                              1u, false);
+    }
+    if (!s_trigger_set && s_trigger_gate.enabled) {
         dma_channel_config dma_cfg_pre = dma_channel_get_default_config(s_dma_channel_dma_pre);
         dma_channel_config dma_cfg_post = dma_channel_get_default_config(s_dma_channel_dma_post);
 
@@ -389,9 +490,17 @@ bool scope_capture_arm(void) {
         return false;
     }
 
-    if (!s_trigger_gate.enabled) {
+    if (!s_trigger_gate.enabled && !s_trigger_set) {
+        // no trigger
         dma_hw->multi_channel_trigger = s_dma_post_mask;
-    } else {
+    } else if (s_trigger_set) {
+        // analog trigger
+        dma_channel_start(s_dma_channel_dma_pre);
+        dma_hw->multi_channel_trigger =
+            (1u << s_dma_channel_trigger_in) | (1u << s_dma_channel_trigger_out) | (1u << s_dma_channel_trigger);
+        pio1->ctrl = (1u << s_sm_pio_trigger) | (1u << s_sm_pio_mux);
+    } else {  // s_trigger_gate.enabled
+        // logic trigger
         dma_channel_start(s_dma_channel_dma_pre);
         dma_hw->multi_channel_trigger = s_dma_pre_mask;
     }
@@ -578,7 +687,18 @@ static inline void scope_capture_complete_handler(void) {
         s_pre_trigger_count = 0u;
 
         if (s_pre_trigger_samples != 0u) {
-            uint transfer_count = SCOPE_PRE_TRIGGER_RING_TRANSFER_COUNT - dma_hw->ch[s_dma_channel_adc].transfer_count;
+            uint transfer_count;
+            if (s_trigger_set) {
+                // For analog trigger, the pre-trigger buffer is filled via PIO and may not be fully filled at the time
+                // of capture completion. Calculate the actual number of pre-trigger samples based on the DMA transfer
+                // count.
+                transfer_count =
+                    SCOPE_PRE_TRIGGER_RING_TRANSFER_COUNT - dma_hw->ch[s_dma_channel_trigger_out].transfer_count;
+            } else {
+                // For logic trigger, the pre-trigger buffer is filled directly by ADC DMA and should be fully filled at
+                // the time of capture completion.
+                transfer_count = SCOPE_PRE_TRIGGER_RING_TRANSFER_COUNT - dma_hw->ch[s_dma_channel_adc].transfer_count;
+            }
 
             s_pre_trigger_first = (int)(transfer_count % SCOPE_PRE_TRIGGER_BUFFER_SIZE) - (int)s_pre_trigger_samples;
             s_pre_trigger_count = s_pre_trigger_samples;
@@ -615,4 +735,13 @@ static inline void scope_capture_stop_hardware(void) {
     dma_channel_abort(s_dma_channel_reload_adc_counter);
     dma_channel_abort(s_dma_channel_dma_pre);
     dma_channel_abort(s_dma_channel_dma_post);
+#ifdef PICO_RP2350
+    dma_channel_abort(s_dma_channel_trigger_in);
+    dma_channel_abort(s_dma_channel_trigger_out);
+    dma_channel_abort(s_dma_channel_trigger);
+    if (s_trigger_set) {
+        pio_remove_program(pio1, &scope_trigger_high_program, s_offset_trigger);
+        pio_remove_program(pio1, &scope_mux_program, s_offset_mux);
+    }
+#endif
 }
