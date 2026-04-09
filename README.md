@@ -169,7 +169,8 @@ sigrok-cli -d picomso --channels D0,A0 --samples 1000 --config samplerate=5k
 PicoMSO works directly with PulseView for interactive visualization of
 mixed-signal captures.
 
-![PicoMSO PulseView example](docs/images/picomso-pulseview.png)
+![PicoMSO PulseView example](docs/images/picomso-pulseview-uart.png)
+![PicoMSO PulseView example](docs/images/picomso-pulseview-i2c.png)
 
 ---
 
