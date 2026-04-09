@@ -102,8 +102,8 @@ You can either:
 
 ## Install libsigrok (precompiled)
 
-Download artifacts from:
-https://github.com/dgatf/libsigrok
+Download binaries from:
+https://github.com/dgatf/libsigrok/releases
 
 ### Linux
 
