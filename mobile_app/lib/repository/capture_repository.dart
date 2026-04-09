@@ -45,17 +45,9 @@ class CaptureRepository {
     final logicBlocks = <Uint8List>[];
     final scopeBlocks = <Uint8List>[];
 
-    bool logicDone = request.mode == CaptureMode.mixedSignal ? false : false;
-    bool scopeDone = request.mode == CaptureMode.mixedSignal ? false : true;
-
     // For logic-only mode we only wait for the logic stream.
-    if (request.mode == CaptureMode.logicOnly) {
-      logicDone = false;
-      scopeDone = true;
-    } else {
-      logicDone = false;
-      scopeDone = false;
-    }
+    bool logicDone = false;
+    bool scopeDone = request.mode == CaptureMode.logicOnly;
 
     int blockCount = 0;
     final expectedBlocks = (request.totalSamples / kDataBlockSize).ceil() + 4;
