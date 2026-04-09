@@ -104,16 +104,16 @@ class SpiDecoder extends ProtocolDecoder<SpiDecoderConfig> {
   String _format(int value, SpiByteFormat format) {
     switch (format) {
       case SpiByteFormat.hex:
-        return '0x\${value.toRadixString(16).toUpperCase().padLeft(2, '0')}';
+        return '0x${value.toRadixString(16).toUpperCase().padLeft(2, '0')}';
       case SpiByteFormat.binary:
-        return '0b\${value.toRadixString(2).padLeft(8, '0')}';
+        return '0b${value.toRadixString(2).padLeft(8, '0')}';
       case SpiByteFormat.decimal:
-        return '\$value';
+        return '$value';
       case SpiByteFormat.ascii:
         if (value >= 0x20 && value < 0x7F) {
-          return "'\${String.fromCharCode(value)}'";
+          return "'${String.fromCharCode(value)}'";
         }
-        return '0x\${value.toRadixString(16).toUpperCase().padLeft(2, '0')}';
+        return '0x${value.toRadixString(16).toUpperCase().padLeft(2, '0')}';
     }
   }
 }

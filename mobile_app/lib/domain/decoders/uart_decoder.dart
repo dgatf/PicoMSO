@@ -126,16 +126,16 @@ class UartDecoder extends ProtocolDecoder<UartDecoderConfig> {
   String _formatByte(int value, ByteFormat format) {
     switch (format) {
       case ByteFormat.hex:
-        return '0x\${value.toRadixString(16).toUpperCase().padLeft(2, '0')}';
+        return '0x${value.toRadixString(16).toUpperCase().padLeft(2, '0')}';
       case ByteFormat.binary:
-        return '0b\${value.toRadixString(2).padLeft(8, '0')}';
+        return '0b${value.toRadixString(2).padLeft(8, '0')}';
       case ByteFormat.decimal:
-        return '\$value';
+        return '$value';
       case ByteFormat.ascii:
         if (value >= 0x20 && value < 0x7F) {
-          return "'\${String.fromCharCode(value)}'";
+          return "'${String.fromCharCode(value)}'";
         }
-        return '0x\${value.toRadixString(16).toUpperCase().padLeft(2, '0')}';
+        return '0x${value.toRadixString(16).toUpperCase().padLeft(2, '0')}';
     }
   }
 }

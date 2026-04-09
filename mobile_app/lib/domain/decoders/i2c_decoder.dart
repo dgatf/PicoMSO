@@ -95,10 +95,10 @@ class I2cDecoder extends ProtocolDecoder<I2cDecoderConfig> {
             final addr = byteValue >> 1;
             final isRead = (byteValue & 1) == 1;
             label =
-                '0x\${addr.toRadixString(16).toUpperCase()} \${isRead ? "R" : "W"} \${isAck ? "ACK" : "NACK"}';
+                '0x${addr.toRadixString(16).toUpperCase()} ${isRead ? "R" : "W"} ${isAck ? "ACK" : "NACK"}';
           } else {
             label =
-                '\${_formatByte(byteValue, config.format)} \${isAck ? "ACK" : "NACK"}';
+                '${_formatByte(byteValue, config.format)} ${isAck ? "ACK" : "NACK"}';
           }
           results.add(DecoderResult(
             channelIndex: config.channelIndex,
@@ -125,16 +125,16 @@ class I2cDecoder extends ProtocolDecoder<I2cDecoderConfig> {
   String _formatByte(int value, I2cByteFormat format) {
     switch (format) {
       case I2cByteFormat.hex:
-        return '0x\${value.toRadixString(16).toUpperCase().padLeft(2, '0')}';
+        return '0x${value.toRadixString(16).toUpperCase().padLeft(2, '0')}';
       case I2cByteFormat.binary:
-        return '0b\${value.toRadixString(2).padLeft(8, '0')}';
+        return '0b${value.toRadixString(2).padLeft(8, '0')}';
       case I2cByteFormat.decimal:
-        return '\$value';
+        return '$value';
       case I2cByteFormat.ascii:
         if (value >= 0x20 && value < 0x7F) {
-          return "'\${String.fromCharCode(value)}'";
+          return "'${String.fromCharCode(value)}'";
         }
-        return '0x\${value.toRadixString(16).toUpperCase().padLeft(2, '0')}';
+        return '0x${value.toRadixString(16).toUpperCase().padLeft(2, '0')}';
     }
   }
 }

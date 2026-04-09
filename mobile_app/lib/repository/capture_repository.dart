@@ -148,7 +148,7 @@ class CaptureRepository {
       16,
       (ch) => DigitalTrack(
         channelIndex: ch,
-        label: 'D\$ch',
+        label: 'D$ch',
         packedBits: channelBits[ch],
         totalSamples: sampleCount,
       ),
@@ -213,7 +213,7 @@ class CaptureRepository {
       numChannels,
       (i) => AnalogTrack(
         adcIndex: enabledIndices[i],
-        label: 'A\${enabledIndices[i]}',
+        label: 'A${enabledIndices[i]}',
         samples: channelSamples[i],
         vRef: 3.3,
       ),
