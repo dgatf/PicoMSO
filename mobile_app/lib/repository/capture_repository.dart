@@ -195,7 +195,6 @@ class CaptureRepository {
 
     // Demultiplex: phase counter cycles through enabled channels.
     int phase = 0;
-    int sampleCounts = List.filled(numChannels, 0) as int;
 
     // Initialize per-channel counters.
     final counts = List.filled(numChannels, 0);

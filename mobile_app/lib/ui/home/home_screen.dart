@@ -33,7 +33,7 @@ class HomeScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _LastCaptureCard(context: context, ref: ref),
+            const _LastCaptureCard(),
             const SizedBox(height: 32),
             const Text(
               'New Capture',
@@ -96,14 +96,11 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class _LastCaptureCard extends StatelessWidget {
-  const _LastCaptureCard({required this.context, required this.ref});
-
-  final BuildContext context;
-  final WidgetRef ref;
+class _LastCaptureCard extends ConsumerWidget {
+  const _LastCaptureCard();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(captureSessionProvider);
     if (session == null) {
       return Card(
@@ -113,7 +110,7 @@ class _LastCaptureCard extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: const [
-                Icon(Icons.waveform_outlined, size: 32, color: Color(0xFF30363D)),
+                Icon(Icons.multiline_chart, size: 32, color: Color(0xFF30363D)),
                 SizedBox(height: 8),
                 Text(
                   'No recent capture',
@@ -135,7 +132,7 @@ class _LastCaptureCard extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              const Icon(Icons.waveform_outlined,
+              const Icon(Icons.multiline_chart,
                   size: 32, color: Color(0xFF58A6FF)),
               const SizedBox(width: 12),
               Expanded(

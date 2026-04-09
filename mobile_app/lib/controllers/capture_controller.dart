@@ -4,7 +4,6 @@ import 'package:picomso/domain/models/capture_request.dart';
 import 'package:picomso/domain/models/capture_session.dart';
 import 'package:picomso/protocol/protocol_codec.dart';
 import 'package:picomso/repository/capture_repository.dart';
-import 'package:picomso/transport/usb_transport.dart';
 
 // ---------------------------------------------------------------------------
 // Capture lifecycle state machine
@@ -60,7 +59,7 @@ final class CaptureError extends CaptureState {
 
 final captureRepositoryProvider = Provider<CaptureRepository>((ref) {
   return CaptureRepository(
-    ref.read(_transportProvider),
+    ref.read(usbTransportProvider),
     ProtocolCodec(),
   );
 });

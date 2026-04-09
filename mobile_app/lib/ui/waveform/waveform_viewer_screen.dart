@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:picomso/controllers/capture_controller.dart';
@@ -6,7 +5,9 @@ import 'package:picomso/controllers/decoder_controller.dart';
 import 'package:picomso/controllers/viewport_controller.dart';
 import 'package:picomso/domain/models/capture_mode.dart';
 import 'package:picomso/domain/models/capture_session.dart';
+import 'package:picomso/domain/models/decoder_result.dart';
 import 'package:picomso/domain/models/min_max_pyramid.dart';
+import 'package:picomso/domain/models/viewport_state.dart';
 import 'package:picomso/ui/shared/theme/app_theme.dart';
 import 'package:picomso/ui/waveform/painters/analog_track_painter.dart';
 import 'package:picomso/ui/waveform/painters/cursor_painter.dart';
@@ -62,8 +63,10 @@ class _WaveformViewerScreenState extends ConsumerState<WaveformViewerScreen> {
     }
 
     final viewport = ref.watch(viewportControllerProvider);
-    final decoderResults = ref.watch(decoderResultsProvider).valueOrNull ?? [];
-    final pyramids = ref.watch(_analogPyramidsProvider).valueOrNull ?? [];
+    final List<DecoderResult> decoderResults =
+        ref.watch(decoderResultsProvider).valueOrNull ?? const [];
+    final List<MinMaxPyramid?> pyramids =
+        ref.watch(_analogPyramidsProvider).valueOrNull ?? const [];
 
     final analogH = session.analogTracks.length * _analogTrackHeight;
     final digitalH = session.digitalTracks.length * _digitalTrackHeight;
@@ -196,8 +199,8 @@ class _WaveformViewerScreenState extends ConsumerState<WaveformViewerScreen> {
   Widget _buildCanvas(
     BuildContext context,
     CaptureSession session,
-    dynamic viewport,
-    List<dynamic> decoderResults,
+    ViewportState viewport,
+    List<DecoderResult> decoderResults,
     List<MinMaxPyramid?> pyramids,
     double canvasWidth,
     double totalH,

@@ -10,21 +10,22 @@ import 'package:picomso/transport/usb_transport.dart';
 
 final _codecProvider = Provider<ProtocolCodec>((ref) => ProtocolCodec());
 
-final _transportProvider = Provider<UsbTransport>((ref) {
+/// Public transport provider shared across device and capture controllers.
+final usbTransportProvider = Provider<UsbTransport>((ref) {
   ref.onDispose(() async => UsbTransport.instance.dispose());
   return UsbTransport.instance;
 });
 
 final deviceRepositoryProvider = Provider<DeviceRepository>((ref) {
   return DeviceRepository(
-    ref.watch(_transportProvider),
+    ref.watch(usbTransportProvider),
     ref.watch(_codecProvider),
   );
 });
 
 /// Connection state value object.
-class ConnectionState {
-  const ConnectionState({
+class DeviceConnectionState {
+  const DeviceConnectionState({
     required this.isConnected,
     this.deviceInfo,
     this.capabilities,
@@ -40,22 +41,22 @@ class ConnectionState {
 }
 
 /// Notifier that manages the device connection lifecycle.
-class DeviceController extends AsyncNotifier<ConnectionState> {
+class DeviceController extends AsyncNotifier<DeviceConnectionState> {
   @override
-  Future<ConnectionState> build() async {
-    return const ConnectionState(isConnected: false);
+  Future<DeviceConnectionState> build() async {
+    return const DeviceConnectionState(isConnected: false);
   }
 
   /// Attempt to connect and query device info/capabilities.
   Future<void> connect() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      final transport = ref.read(_transportProvider);
+      final transport = ref.read(usbTransportProvider);
       await transport.open();
       final repo = ref.read(deviceRepositoryProvider);
       final info = await repo.getInfo();
       final caps = await repo.getCapabilities();
-      return ConnectionState(
+      return DeviceConnectionState(
         isConnected: true,
         deviceInfo: info,
         capabilities: caps,
@@ -65,10 +66,10 @@ class DeviceController extends AsyncNotifier<ConnectionState> {
 
   /// Disconnect from the device.
   Future<void> disconnect() async {
-    await ref.read(_transportProvider).dispose();
-    state = const AsyncData(ConnectionState(isConnected: false));
+    await ref.read(usbTransportProvider).dispose();
+    state = const AsyncData(DeviceConnectionState(isConnected: false));
   }
 }
 
 final deviceControllerProvider =
-    AsyncNotifierProvider<DeviceController, ConnectionState>(DeviceController.new);
+    AsyncNotifierProvider<DeviceController, DeviceConnectionState>(DeviceController.new);
