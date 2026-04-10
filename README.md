@@ -141,10 +141,10 @@ mixed-signal captures.
 
 For development details and manual host-side setup, see:
 
-- docs/building.md
-- docs/architecture.md
-- docs/protocol.md
-- docs/libsigrok.md
+- [Building guide](docs/building.md)
+- [Architecture](docs/architecture.md)
+- [Protocol](docs/protocol.md)
+- [Manual libsigrok setup](docs/libsigrok.md)
 
 ---
 
