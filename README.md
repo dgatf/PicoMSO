@@ -16,6 +16,7 @@ hardware-level triggering using PIO and DMA.
 - No sample loss or software-trigger latency
 - Seamless integration with **libsigrok** and **PulseView**
 - Support for **RP2040** and **RP2350**
+- Prebuilt **PicoMSO Desktop binaries** for easy setup
 
 ---
 
@@ -43,10 +44,10 @@ hardware-level triggering using PIO and DMA.
 
 ## Hardware variants
 
-| MCU      | Features            | Capture depth |
-|----------|--------------------|--------------|
-| RP2040   | Full feature set   | Standard     |
-| RP2350   | Same + extended RAM| Increased    |
+| MCU    | Features            | Capture depth |
+|--------|---------------------|---------------|
+| RP2040 | Full feature set    | Standard      |
+| RP2350 | Same + extended RAM | Increased     |
 
 ---
 
@@ -75,7 +76,7 @@ This is a key difference compared to host-triggered devices.
 
 ### 1. Flash firmware
 
-Download from:
+Download from:  
 https://github.com/dgatf/PicoMSO/releases
 
 Steps:
@@ -87,80 +88,28 @@ Steps:
 
 ---
 
-### 2. Install libsigrok (temporary fork)
+### 2. Install PicoMSO Desktop
 
-Until upstream support is merged, use:
+Prebuilt desktop binaries with PicoMSO support are available here:  
+https://github.com/dgatf/pulseview/releases
 
-https://github.com/dgatf/libsigrok/tree/picomso-driver
+Available packages:
 
-You can either:
+- **Linux:** AppImage
+- **Windows:** portable ZIP package
+- **macOs:** DMG package
 
-- Build manually  
-- OR install precompiled artifacts (recommended)
-
----
-
-## Install libsigrok (precompiled)
-
-Download binaries from:
-https://github.com/dgatf/libsigrok/releases
-
-### Linux
-
-```bash
-tar -xf libsigrok-ubuntu-22.04.tar.gz
-cd libsigrok-ubuntu-22.04
-sudo cp -a usr/local/* /usr/local/
-sudo ldconfig
-```
-
-Verify:
-
-```bash
-pkg-config --modversion libsigrok
-```
+This is the recommended way to use PicoMSO.
 
 ---
 
-### Windows (MSYS2 UCRT64)
+### 3. Start capturing
 
-```bash
-unzip libsigrok-windows-ucrt64.zip
-cd libsigrok-windows-ucrt64
-cp -a ucrt64/* /ucrt64/
-```
-
----
-
-### macOS
-
-```bash
-tar -xf libsigrok-macos-14.tar.gz
-cd libsigrok-macos-14
-sudo cp -a usr/local/* /usr/local/
-```
-
----
-
-## Usage examples
-
-Show device:
-
-```bash
-sigrok-cli -d picomso --show
-```
-
-Logic capture:
-
-```bash
-sigrok-cli -d picomso --channels D0 --samples 1000 --config samplerate=5k
-```
-
-Mixed capture:
-
-```bash
-sigrok-cli -d picomso --channels D0,A0 --samples 1000 --config samplerate=5k
-```
+1. Connect your PicoMSO device via USB
+2. Launch PicoMSO Desktop
+3. Select the PicoMSO device from the device list
+4. Configure channels, samplerate, and trigger
+5. Click **Run**
 
 ---
 
@@ -174,6 +123,17 @@ mixed-signal captures.
 
 ---
 
+## Advanced documentation
+
+For development details and manual host-side setup, see:
+
+- docs/building.md
+- docs/architecture.md
+- docs/protocol.md
+- docs/libsigrok.md
+
+---
+
 ## Build (firmware)
 
 ```bash
@@ -181,14 +141,6 @@ git submodule update --init --recursive
 cmake -S firmware/app -B build/picomso
 cmake --build build/picomso
 ```
-
----
-
-## Documentation
-
-- docs/building.md  
-- docs/architecture.md  
-- docs/protocol.md  
 
 ---
 
@@ -205,7 +157,7 @@ This significantly improves trigger stability and reduces glitches.
 
 ## Status
 
-PicoMSO **v1 is stable and fully functional**.
+PicoMSO is stable and fully functional for core mixed-signal capture.
 
 Planned improvements:
 
