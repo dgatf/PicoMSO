@@ -97,7 +97,7 @@ Available packages:
 
 - **Linux:** AppImage
 - **Windows:** portable ZIP package
-- **macOs:** DMG package
+- **macOS:** DMG package
 
 This is the recommended way to use PicoMSO.
 
@@ -112,6 +112,20 @@ This is the recommended way to use PicoMSO.
 5. Click **Run**
 
 ---
+
+## Notes
+
+- **Linux:** if the device is not detected, install the appropriate [udev rules](udev/99-picomso.rules) under `/etc/udev/rules.d/` and reconnect the device.
+- **Windows:** you may need to install a WinUSB-compatible driver using Zadig.
+- Prebuilt PicoMSO Desktop binaries are the recommended installation method.
+
+Example Linux setup:
+
+```bash
+sudo cp udev/99-picomso.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
 
 ## PulseView
 
