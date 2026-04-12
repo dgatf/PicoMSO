@@ -204,7 +204,7 @@ static inline void logic_capture_complete_handler(void) {
     }
 
     int pos = LOGIC_BUFFER_SIZE - dma_hw->ch[s_dma_capture].transfer_count;
-    s_first_sample = pos - s_pre_trigger_samples;
+    s_first_sample = pos - s_pre_trigger_samples - s_post_trigger_samples;
     if (s_first_sample < 0) {
         s_first_sample += LOGIC_BUFFER_SIZE;
     }
