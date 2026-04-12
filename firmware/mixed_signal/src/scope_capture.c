@@ -59,9 +59,8 @@ static capture_trigger_gate_t s_trigger_gate = {.enabled = false, .dreq = 0u};
 
 static const uint s_dma_capture = 6u;
 static const uint s_dma_capture_reload = 7u;
-static const uint s_dma_capture_disable = 8u;
+static const uint s_dma_disable_adc = 8u;
 static uint s_reload_counter;
-
 static uint16_t s_sample_buffer[SCOPE_BUFFER_SIZE] __attribute__((aligned(SCOPE_BUFFER_SIZE * sizeof(uint16_t))));
 
 static volatile uint32_t *s_clk_adc_ctrl = (volatile uint32_t *)(CLOCKS_BASE + CLOCKS_CLK_ADC_CTRL_OFFSET);
@@ -184,26 +183,28 @@ static void scope_capture_configure_adc(void) {
 }
 
 static inline void scope_capture_complete_handler(void) {
-    dma_hw->ints0 = 1u << s_dma_capture;
+    if (dma_hw->ints0 & (1u << s_dma_disable_adc)) {
+        dma_hw->ints0 = 1u << s_dma_disable_adc;
+        dma_channel_abort(s_dma_capture);
+        if (s_phase == SCOPE_CAPTURE_PHASE_CAPTURING) {
+            int pos = SCOPE_BUFFER_SIZE - dma_hw->ch[s_dma_capture].transfer_count;
+            s_first_sample = pos - (s_pre_trigger_samples + s_post_trigger_samples);
+            if (s_first_sample < 0) {
+                s_first_sample += SCOPE_BUFFER_SIZE;
+            }
 
-    if (s_phase == SCOPE_CAPTURE_PHASE_CAPTURING) {
-        int pos = SCOPE_BUFFER_SIZE - dma_hw->ch[s_dma_capture].transfer_count;
-        s_first_sample = pos - (s_pre_trigger_samples + s_post_trigger_samples);
-        if (s_first_sample < 0) {
-            s_first_sample += SCOPE_BUFFER_SIZE;
+            scope_capture_stop_hardware();
+            s_phase = SCOPE_CAPTURE_PHASE_FINALIZED;
+
+            debug("\n[scope] complete phase=%s width=%u", scope_capture_phase_name(s_phase), (unsigned)s_sample_width);
+
+            if (s_complete_handler != NULL) {
+                s_complete_handler();
+            }
+        } else {
+            s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
+            debug("\n[scope] complete ignored phase=%s", scope_capture_phase_name(s_phase));
         }
-
-        scope_capture_stop_hardware();
-        s_phase = SCOPE_CAPTURE_PHASE_FINALIZED;
-
-        debug("\n[scope] complete phase=%s width=%u", scope_capture_phase_name(s_phase), (unsigned)s_sample_width);
-
-        if (s_complete_handler != NULL) {
-            s_complete_handler();
-        }
-    } else {
-        s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
-        debug("\n[scope] complete ignored phase=%s", scope_capture_phase_name(s_phase));
     }
 }
 
@@ -213,7 +214,7 @@ static inline void scope_capture_stop_hardware(void) {
 
     dma_channel_abort(s_dma_capture);
     dma_channel_abort(s_dma_capture_reload);
-    dma_channel_abort(s_dma_capture_disable);
+    dma_channel_abort(s_dma_disable_adc);
 }
 
 static void scope_set_samplerate(uint samplerate) {
@@ -438,18 +439,15 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
         if (s_sample_width == SCOPE_SAMPLE_WIDTH_8) {
             channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_8);
             channel_config_set_ring(&dma_cfg, true, SCOPE_RING_BITS);
-            if (s_trigger_gate.enabled) channel_config_set_chain_to(&dma_cfg, s_dma_capture_reload);
+            channel_config_set_chain_to(&dma_cfg, s_dma_capture_reload);
         } else {
             channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_16);
             channel_config_set_ring(&dma_cfg, true, SCOPE_RING_BITS + 1u);
-            if (s_trigger_gate.enabled) channel_config_set_chain_to(&dma_cfg, s_dma_capture_reload);
+            channel_config_set_chain_to(&dma_cfg, s_dma_capture_reload);
         }
         channel_config_set_write_increment(&dma_cfg, true);
         channel_config_set_read_increment(&dma_cfg, false);
         channel_config_set_dreq(&dma_cfg, DREQ_ADC);
-        dma_channel_set_irq0_enabled(s_dma_capture, true);
-        irq_set_exclusive_handler(DMA_IRQ_0, scope_capture_complete_handler);
-        irq_set_enabled(DMA_IRQ_0, true);
         dma_channel_configure(s_dma_capture, &dma_cfg, s_sample_buffer, &adc_hw->fifo, s_reload_counter, false);
     }
 
@@ -465,13 +463,15 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
 
     // DMA disable adc on complete
     {
-        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_capture_disable);
+        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_disable_adc);
         channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
         channel_config_set_write_increment(&dma_cfg, false);
         channel_config_set_read_increment(&dma_cfg, false);
         channel_config_set_dreq(&dma_cfg, s_trigger_gate.dreq);
-        channel_config_set_chain_to(&dma_cfg, s_dma_capture_disable);
-        dma_channel_configure(s_dma_capture_disable, &dma_cfg, (io_rw_32 *)((uintptr_t)&adc_hw->cs + 0x3000),
+        irq_set_exclusive_handler(DMA_IRQ_0, scope_capture_complete_handler);
+        irq_set_enabled(DMA_IRQ_0, true);
+        dma_channel_set_irq0_enabled(s_dma_disable_adc, true);
+        dma_channel_configure(s_dma_disable_adc, &dma_cfg, (io_rw_32 *)((uintptr_t)&adc_hw->cs + 0x3000),
                               &s_adc_disable_mask, 1u, false);
     }
 
@@ -498,8 +498,7 @@ bool scope_capture_arm(void) {
     }
 
     dma_channel_start(s_dma_capture);
-
-    if (s_trigger_gate.enabled) dma_channel_start(s_dma_capture_disable);
+    dma_channel_start(s_dma_disable_adc);
 
     s_activation_armed = true;
 
