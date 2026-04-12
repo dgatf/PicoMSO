@@ -29,7 +29,6 @@ hardware-level triggering using PIO and DMA.
 - **Capture depth:**
   - RP2040: up to **30 ksamples**
   - RP2350: up to **60 ksamples**
-- **Pre-trigger buffer:** up to **4 ksample**
 - **Triggering:** level and edge (hardware, real-time)
 
 ### Oscilloscope
