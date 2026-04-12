@@ -56,7 +56,7 @@ static const uint s_sm_trigger[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {0u, 1u};
 
 static const uint s_dma_capture = 0u;
 static const uint s_dma_capture_reload = 1u;
-static const uint s_dma_set_counter = 2u;
+static const uint s_dma_init_counter = 2u;
 static const uint s_dma_halt_capture = 3u;
 static const uint s_dma_trigger_to_mux[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {4u, 5u};
 
@@ -204,7 +204,7 @@ static inline void logic_capture_complete_handler(void) {
     }
 
     int pos = LOGIC_BUFFER_SIZE - dma_hw->ch[s_dma_capture].transfer_count;
-    s_first_sample = pos - s_pre_trigger_samples - s_post_trigger_samples;
+    s_first_sample = pos - s_pre_trigger_samples - s_post_trigger_samples - 6;
     if (s_first_sample < 0) {
         s_first_sample += LOGIC_BUFFER_SIZE;
     }
@@ -227,7 +227,7 @@ static inline void logic_capture_stop_hardware(void) {
 
     dma_channel_abort(s_dma_capture);
     dma_channel_abort(s_dma_capture_reload);
-    dma_channel_abort(s_dma_set_counter);
+    dma_channel_abort(s_dma_init_counter);
     dma_channel_abort(s_dma_halt_capture);
 
     for (uint i = 0u; i < s_trigger_count; ++i) {
@@ -370,6 +370,7 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
     s_sm_trigger_mask = 0u;
     s_triggered_channel = -1;
     s_activation_armed = false;
+    s_reload_counter = LOGIC_BUFFER_SIZE;
 
     if (s_rate > LOGIC_CAPTURE_RATE_CHANGE_CLK_HZ) {
         if (clock_get_hz(clk_sys) != 200000000u) {
@@ -398,8 +399,7 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
             return false;
         }
     }
-
-    s_reload_counter = LOGIC_BUFFER_SIZE;
+    trigger_gate->enabled = s_trigger_count > 0u;
 
     // DMA capture
     {
@@ -450,12 +450,15 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
     sm_config_set_in_shift(&s_pio_config_counter, false, true, LOGIC_CAPTURE_CHANNEL_COUNT);
     sm_config_set_clkdiv(&s_pio_config_counter, s_clk_div);
     pio_sm_init(pio0, s_sm_counter, s_offset_counter, &s_pio_config_counter);
+    if (trigger_gate->enabled) {
+        pio_sm_put(pio0, s_sm_counter, s_post_trigger_samples);
+    } else {
+        pio_sm_put(pio0, s_sm_counter, s_pre_trigger_samples + s_post_trigger_samples);
+    }
     pio_interrupt_clear(pio0, 1u);
     pio_set_irq1_source_enabled(pio0, (enum pio_interrupt_source)pis_interrupt1, true);
     irq_set_exclusive_handler(PIO0_IRQ_1, logic_capture_complete_handler);
     irq_set_enabled(PIO0_IRQ_1, true);
-
-    trigger_gate->enabled = s_trigger_count > 0u;
 
     // PIO trigger mux
     if (trigger_gate->enabled) {
@@ -469,17 +472,18 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
         irq_set_enabled(PIO0_IRQ_0, true);
     }
 
-    // DMA set counter
+    // DMA push to counter when trigger fires
     {
-        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_set_counter);
+        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_init_counter);
         channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
         channel_config_set_write_increment(&dma_cfg, false);
         channel_config_set_read_increment(&dma_cfg, false);
+        channel_config_set_dreq(&dma_cfg, pio_get_dreq(pio0, s_sm_mux, false));
         if (trigger_gate->enabled) {
-            dma_channel_configure(s_dma_set_counter, &dma_cfg, &pio0->txf[s_sm_counter], &s_post_trigger_samples, 1u,
+            dma_channel_configure(s_dma_init_counter, &dma_cfg, &pio0->txf[s_sm_counter], &pio0->rxf[s_sm_mux], 1u,
                                   false);
         } else {
-            dma_channel_configure(s_dma_set_counter, &dma_cfg, &pio0->txf[s_sm_counter], &s_reload_counter, 1u, false);
+            pio_sm_put(pio0, s_sm_counter, 255);
         }
     }
 
@@ -511,7 +515,7 @@ bool logic_capture_arm(void) {
     }
 
     dma_channel_start(s_dma_capture);
-    dma_channel_start(s_dma_set_counter);
+    dma_channel_start(s_dma_init_counter);
     dma_channel_start(s_dma_halt_capture);
 
     if (s_sm_trigger_mask) {

@@ -11,10 +11,11 @@
     nop // in pins pin_count
 
 .program counter
-    pull block
-    mov x osr
     set y 0
     mov isr y
+    pull block
+    mov x osr
+    pull block
 loop:
     jmp x-- loop
     irq 1
