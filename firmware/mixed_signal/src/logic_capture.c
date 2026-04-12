@@ -476,7 +476,7 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
         channel_config_set_write_increment(&dma_cfg, false);
         channel_config_set_read_increment(&dma_cfg, false);
         if (trigger_gate->enabled) {
-            channel_config_set_dreq(&dma_cfg, pio_get_dreq(pio0, s_sm_mux, false));
+            channel_config_set_dreq(&dma_cfg, pio_get_dreq(pio0, s_sm_mux, true));
             dma_channel_configure(s_dma_set_counter, &dma_cfg, &pio0->txf[s_sm_counter], &s_post_trigger_samples, 1u,
                                   false);
         } else {
