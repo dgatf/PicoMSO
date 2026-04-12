@@ -203,7 +203,7 @@ static inline void logic_capture_complete_handler(void) {
         return;
     }
 
-    int pos = (LOGIC_BUFFER_SIZE - dma_hw->ch[s_dma_capture].transfer_count) % LOGIC_BUFFER_SIZE;
+    int pos = LOGIC_BUFFER_SIZE - dma_hw->ch[s_dma_capture].transfer_count;
     s_first_sample = pos - s_pre_trigger_samples;
     if (s_first_sample < 0) {
         s_first_sample += LOGIC_BUFFER_SIZE;
@@ -399,11 +399,8 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
         }
     }
 
-    if (s_trigger_count)
-        s_reload_counter = LOGIC_BUFFER_SIZE;
-    else
-        s_reload_counter = s_pre_trigger_samples + s_post_trigger_samples;
-
+    s_reload_counter = LOGIC_BUFFER_SIZE;
+    
     // DMA capture
     {
         dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_capture);

@@ -13,9 +13,12 @@
 .program counter
     pull block
     mov x osr
+    set y 0
+    mov isr y
 loop:
     jmp x-- loop
     irq 1
+    push
 halt:
     jmp halt
 
