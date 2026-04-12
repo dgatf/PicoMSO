@@ -8,9 +8,20 @@
  */
  
 .program capture
-.wrap_target
     nop // in pins pin_count
-.wrap
+
+.program counter
+    set y 0
+    mov isr y
+    pull block
+    mov x osr
+    pull block
+loop:
+    jmp x-- loop
+    irq 1
+    push
+halt:
+    jmp halt
 
 .program trigger_level_high
     wait 1 pin 0 
