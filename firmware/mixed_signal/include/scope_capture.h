@@ -19,26 +19,26 @@ extern "C" {
 
 #include "types.h"
 
+#if PICO_RP2040
+#define SCOPE_RING_BITS 15u
+#elif PICO_RP2350
+#define SCOPE_RING_BITS 16u
+#endif
+
+#define SCOPE_BUFFER_SIZE (1u << SCOPE_RING_BITS)
 #define SCOPE_CAPTURE_BLOCK_BYTES 64u
-/** Total analog sample buffer (interleaved across all enabled channels). */
-#define SCOPE_CAPTURE_MAX_SAMPLES 50000u
-#define SCOPE_CAPTURE_PRE_TRIGGER_MAX_SAMPLES 4096u
-/** Maximum number of simultaneously enabled ADC input channels (inputs 0, 1, 2). */
-#define SCOPE_CAPTURE_ANALOG_CHANNEL_MAX 3u
+#define SCOPE_CAPTURE_MAX_SAMPLES SCOPE_RING_BITS
+#define SCOPE_CAPTURE_ANALOG_CHANNEL_MAX 2u
 
 void scope_capture_reset(void);
 bool scope_capture_start(const capture_config_t *config, complete_handler_t handler);
 bool scope_capture_prepare(const capture_config_t *config, complete_handler_t handler,
                            const capture_trigger_gate_t *trigger_gate);
 bool scope_capture_arm(void);
-void scope_capture_activate(void);
 void scope_capture_mark_capturing(void);
 capture_state_t scope_capture_get_state(void);
 bool scope_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len);
-void oscilloscope_set_coupling(channel_t channel, coupling_t coupling);
-void oscilloscope_set_samplerate(uint samplerate);
-uint16_t scope_capture_get_sample_index(int index);
-uint scope_capture_get_samples_count(void);
+void scope_set_coupling(channel_t channel, coupling_t coupling);
 
 #ifdef __cplusplus
 }

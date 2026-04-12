@@ -431,8 +431,7 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     /* sizeof(req) includes the trailing analog_channels byte (25 bytes total).
      * Also accept the legacy 24-byte form (without analog_channels) from older
      * hosts; in that case default to ADC input 0 only. */
-    static const uint16_t legacy_len =
-        (uint16_t)(sizeof(picomso_request_capture_request_t) - 1u);
+    static const uint16_t legacy_len = (uint16_t)(sizeof(picomso_request_capture_request_t) - 1u);
 
     active_streams = capture_controller_get_streams(&s_capture_ctrl);
 
@@ -486,13 +485,11 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
         }
 
         if (req.total_samples == 0u || req.total_samples > scope_max_samples ||
-            req.pre_trigger_samples > req.total_samples ||
-            req.pre_trigger_samples > SCOPE_CAPTURE_PRE_TRIGGER_MAX_SAMPLES) {
+            req.pre_trigger_samples > req.total_samples) {
             debug(
-                "\n[protocol] REQUEST_CAPTURE rejected reason=invalid_scope_capture_sizing samples=%lu pre=%lu max=%lu "
-                "pre_max=%u",
+                "\n[protocol] REQUEST_CAPTURE rejected reason=invalid_scope_capture_sizing samples=%lu pre=%lu max=%lu",
                 (unsigned long)req.total_samples, (unsigned long)req.pre_trigger_samples,
-                (unsigned long)scope_max_samples, SCOPE_CAPTURE_PRE_TRIGGER_MAX_SAMPLES);
+                (unsigned long)scope_max_samples);
             picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid scope capture sizing", resp);
             return PICOMSO_STATUS_ERR_BAD_LEN;
         }

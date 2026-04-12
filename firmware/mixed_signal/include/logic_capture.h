@@ -19,8 +19,15 @@ extern "C" {
 
 #include "types.h"
 
+#if PICO_RP2040
+#define LOGIC_RING_BITS 15u
+#elif PICO_RP2350
+#define LOGIC_RING_BITS 16u
+#endif
+
+#define LOGIC_BUFFER_SIZE (1u << LOGIC_RING_BITS)
 #define LOGIC_CAPTURE_BLOCK_BYTES 64u
-#define LOGIC_CAPTURE_MAX_SAMPLES 100000u
+#define LOGIC_CAPTURE_MAX_SAMPLES LOGIC_BUFFER_SIZE
 
 typedef struct logic_capture_activation_t {
     // Precomputed direct-write masks for the final logic activation point.
