@@ -487,7 +487,7 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
         }
     }
 
-    trigger_gate->dreq = trigger_gate->enabled ? pio_get_dreq(pio0, s_sm_mux, false) : 0u;
+    trigger_gate->dreq = trigger_gate->enabled ? pio_get_dreq(pio0, s_sm_counter, false) : 0u;
 
     activation->pio0_enable_mask = trigger_gate->enabled
                                        ? (1u << s_sm_capture) | (1u << s_sm_mux) | (1u << s_sm_counter)
