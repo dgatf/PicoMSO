@@ -52,7 +52,7 @@ static capture_config_t s_scope_capture_config = {
         },
 };
 
-static scope_capture_phase_t s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
+static volatile scope_capture_phase_t s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
 static uint32_t s_capture_read_offset_bytes = 0u;
 static bool s_activation_armed = false;
 static capture_trigger_gate_t s_trigger_gate = {.enabled = false, .dreq = 0u};
@@ -183,11 +183,12 @@ static void scope_capture_configure_adc(void) {
 }
 
 static inline void scope_capture_complete_handler(void) {
+    debug("\n[scope] dma irq entered ints0=%08lx phase=%s",
+          (unsigned long)dma_hw->ints0, scope_capture_phase_name(s_phase), dma_hw->ints0);
     if (dma_hw->ints0 & (1u << s_dma_disable_adc)) {
         dma_hw->ints0 = 1u << s_dma_disable_adc;
-        dma_channel_abort(s_dma_capture);
         if (s_phase == SCOPE_CAPTURE_PHASE_CAPTURING) {
-            int pos = SCOPE_BUFFER_SIZE - dma_hw->ch[s_dma_capture].transfer_count;
+            int pos = SCOPE_BUFFER_SIZE - dma_hw->ch[s_dma_capture].transfer_count - 6u;
             s_first_sample = pos - (s_pre_trigger_samples + s_post_trigger_samples);
             if (s_first_sample < 0) {
                 s_first_sample += SCOPE_BUFFER_SIZE;
@@ -209,9 +210,6 @@ static inline void scope_capture_complete_handler(void) {
 }
 
 static inline void scope_capture_stop_hardware(void) {
-    adc_run(false);
-    adc_fifo_drain();
-
     dma_channel_abort(s_dma_capture);
     dma_channel_abort(s_dma_capture_reload);
     dma_channel_abort(s_dma_disable_adc);
