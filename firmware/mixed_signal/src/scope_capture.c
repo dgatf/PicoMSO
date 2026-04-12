@@ -187,8 +187,8 @@ static inline void scope_capture_complete_handler(void) {
     dma_hw->ints0 = 1u << s_dma_capture;
 
     if (s_phase == SCOPE_CAPTURE_PHASE_CAPTURING) {
-        int pos = (SCOPE_BUFFER_SIZE - dma_hw->ch[s_dma_capture].transfer_count) % SCOPE_BUFFER_SIZE;
-        s_first_sample = pos - s_pre_trigger_samples;
+        int pos = SCOPE_BUFFER_SIZE - dma_hw->ch[s_dma_capture].transfer_count;
+        s_first_sample = pos - (s_pre_trigger_samples + s_post_trigger_samples);
         if (s_first_sample < 0) {
             s_first_sample += SCOPE_BUFFER_SIZE;
         }
@@ -389,6 +389,7 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
 
     s_complete_handler = handler;
     s_scope_capture_config = *config;
+    s_reload_counter = SCOPE_BUFFER_SIZE;
 
     if (s_scope_capture_config.channels == 0u) {
         s_scope_capture_config.channels = 1u;
@@ -431,11 +432,6 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
 
     scope_set_samplerate(s_scope_capture_config.rate);
 
-    if (s_trigger_gate.enabled)
-        s_reload_counter = SCOPE_BUFFER_SIZE;
-    else
-        s_reload_counter = s_pre_trigger_samples + s_post_trigger_samples;
-
     // DMA capture
     {
         dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_capture);
@@ -457,27 +453,26 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
         dma_channel_configure(s_dma_capture, &dma_cfg, s_sample_buffer, &adc_hw->fifo, s_reload_counter, false);
     }
 
-    if (s_trigger_gate.enabled) {
-        // DMA disable adc on trigger
-        {
-            dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_capture_disable);
-            channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
-            channel_config_set_write_increment(&dma_cfg, false);
-            channel_config_set_read_increment(&dma_cfg, false);
-            channel_config_set_dreq(&dma_cfg, s_trigger_gate.dreq);
-            channel_config_set_chain_to(&dma_cfg, s_dma_capture_disable);
-            dma_channel_configure(s_dma_capture_disable, &dma_cfg, (io_rw_32 *)((uintptr_t)&adc_hw->cs + 0x3000),
-                                  &s_adc_disable_mask, 1u, false);
-        }
-        // DMA reload capture
-        {
-            dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_capture_reload);
-            channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
-            channel_config_set_write_increment(&dma_cfg, false);
-            channel_config_set_read_increment(&dma_cfg, false);
-            dma_channel_configure(s_dma_capture_reload, &dma_cfg, &dma_hw->ch[s_dma_capture].al1_transfer_count_trig,
-                                  &s_reload_counter, 1u, false);
-        }
+    // DMA reload capture
+    {
+        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_capture_reload);
+        channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+        channel_config_set_write_increment(&dma_cfg, false);
+        channel_config_set_read_increment(&dma_cfg, false);
+        dma_channel_configure(s_dma_capture_reload, &dma_cfg, &dma_hw->ch[s_dma_capture].al1_transfer_count_trig,
+                              &s_reload_counter, 1u, false);
+    }
+
+    // DMA disable adc on complete
+    {
+        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_capture_disable);
+        channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+        channel_config_set_write_increment(&dma_cfg, false);
+        channel_config_set_read_increment(&dma_cfg, false);
+        channel_config_set_dreq(&dma_cfg, s_trigger_gate.dreq);
+        channel_config_set_chain_to(&dma_cfg, s_dma_capture_disable);
+        dma_channel_configure(s_dma_capture_disable, &dma_cfg, (io_rw_32 *)((uintptr_t)&adc_hw->cs + 0x3000),
+                              &s_adc_disable_mask, 1u, false);
     }
 
     adc_set_round_robin(s_scope_capture_config.channels);
