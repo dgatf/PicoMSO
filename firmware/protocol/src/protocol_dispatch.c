@@ -283,11 +283,11 @@ static void picomso_fill_capabilities(picomso_capabilities_t *caps) {
     caps->capabilities_flags = 0;
 
 #if PICO_RP2040
-    caps->max_samples_logic = 40000u;
-    caps->max_samples_scope = 40000u;
+    caps->max_samples_logic = 30000u;
+    caps->max_samples_scope = 30000u;
 #elif PICO_RP2350
-    caps->max_samples_logic = 80000u;
-    caps->max_samples_scope = 80000u;
+    caps->max_samples_logic = 60000u;
+    caps->max_samples_scope = 60000u;
     caps->capabilities_flags = PICOMSO_CAP_ANALOG_TRIGGER;
 #endif
 }
