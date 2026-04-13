@@ -484,12 +484,12 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
         if (s_trigger_count == 1u) {
             s_offset_mux = pio_add_program(pio0, &mux_program);
             s_pio_config_mux = mux_program_get_default_config(s_offset_mux);
-            sm_config_set_clkdiv(&s_pio_config_mux, s_clk_div); //1.0f);
+            sm_config_set_clkdiv(&s_pio_config_mux, 1.0f);
             pio_sm_init(pio0, s_sm_mux, s_offset_mux, &s_pio_config_mux);
         } else {
             s_offset_mux = pio_add_program(pio0, &mux_2_program);
             s_pio_config_mux = mux_2_program_get_default_config(s_offset_mux);
-            sm_config_set_clkdiv(&s_pio_config_mux, s_clk_div); //1.0f);
+            sm_config_set_clkdiv(&s_pio_config_mux, 1.0f);
             pio_sm_init(pio0, s_sm_mux, s_offset_mux + mux_2_offset_entry_point, &s_pio_config_mux);
         }
         irq_set_exclusive_handler(PIO0_IRQ_0, logic_capture_trigger_handler);
