@@ -73,12 +73,14 @@ halt:
 
 .program mux_2
 .wrap_target
+    pull noblock
+    pull noblock
     irq 7
     irq 7
     irq clear 7
 public entry_point:
     pull [31]
-    mov x osr
+    mov x osr [31]
     pull noblock
     mov y osr
     jmp x!=y trigger
