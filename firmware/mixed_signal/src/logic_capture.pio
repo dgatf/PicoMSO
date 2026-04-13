@@ -74,7 +74,10 @@ halt:
 .program mux_2
 .wrap_target
     irq 7
-    pull
+    irq 7
+    irq clear 7
+public entry_point:
+    pull [31]
     mov x osr
     pull noblock
     mov y osr
