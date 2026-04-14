@@ -82,6 +82,7 @@ static inline void scope_capture_stop_hardware(void);
 static void scope_capture_activate(void);
 static void scope_capture_configure_adc(void);
 static void scope_set_samplerate(uint samplerate);
+static int64_t cleanup_callback(alarm_id_t id, void *user_data);
 
 static uint scope_channel_count(uint32_t channels_mask) {
     uint count = 0u;
@@ -120,15 +121,15 @@ static inline uint16_t scope_capture_get_sample_u8(int index) {
         return 0u;
     }
 
-    int pos = s_first_sample + index * 2;
+    int pos = s_first_sample + index;
 
     if (pos < 0) {
         pos += SCOPE_BUFFER_SIZE;
-    } else if (pos + 1 >= (int)SCOPE_BUFFER_SIZE) {
+    } else if (pos >= (int)SCOPE_BUFFER_SIZE) {
         pos -= SCOPE_BUFFER_SIZE;
     }
 
-    return (uint16_t)(buffer[pos] | (buffer[pos + 1] << 8u));
+    return (uint16_t)buffer[pos];
 }
 
 static inline uint16_t scope_capture_get_sample_u16(int index) {
@@ -182,31 +183,65 @@ static void scope_capture_configure_adc(void) {
     /* s_slice_num = pwm_gpio_to_slice_num(GPIO_CALIBRATION); */
 }
 
+static int64_t cleanup_callback(alarm_id_t id, void *user_data) {
+    scope_capture_stop_hardware();
+    s_phase = SCOPE_CAPTURE_PHASE_FINALIZED;
+
+    debug("\n[scope] complete phase=%s width=%u first=%d", scope_capture_phase_name(s_phase), (unsigned)s_sample_width,
+          s_first_sample);
+
+    if (s_complete_handler != NULL) {
+        s_complete_handler();
+    }
+}
+
 static inline void scope_capture_complete_handler(void) {
-    debug("\n[scope] dma irq entered ints0=%08lx phase=%s",
-          (unsigned long)dma_hw->ints0, scope_capture_phase_name(s_phase), dma_hw->ints0);
-    if (dma_hw->ints0 & (1u << s_dma_disable_adc)) {
-        dma_hw->ints0 = 1u << s_dma_disable_adc;
-        if (s_phase == SCOPE_CAPTURE_PHASE_CAPTURING) {
-            int pos = SCOPE_BUFFER_SIZE - dma_hw->ch[s_dma_capture].transfer_count - 6u;
-            s_first_sample = pos - (s_pre_trigger_samples + s_post_trigger_samples);
-            if (s_first_sample < 0) {
-                s_first_sample += SCOPE_BUFFER_SIZE;
+    debug("\n[scope] dma irq entered ints0=%08lx phase=%s", (unsigned long)dma_hw->ints0,
+          scope_capture_phase_name(s_phase));
+
+    if (!(dma_hw->ints0 & (1u << s_dma_disable_adc))) {
+        return;
+    }
+
+    dma_hw->ints0 = 1u << s_dma_disable_adc;
+
+    if (s_phase != SCOPE_CAPTURE_PHASE_CAPTURING) {
+        s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
+        debug("\n[scope] complete ignored phase=%s", scope_capture_phase_name(s_phase));
+        return;
+    }
+
+    {
+        const int total_samples = (int)(s_pre_trigger_samples + s_post_trigger_samples);
+        int pos = (int)SCOPE_BUFFER_SIZE - (int)dma_hw->ch[s_dma_capture].transfer_count;
+
+        /* Convert current DMA write position to first sample of the capture window. */
+        s_first_sample = pos - total_samples;
+
+        while (s_first_sample < 0) {
+            s_first_sample += (int)SCOPE_BUFFER_SIZE;
+        }
+        while (s_first_sample >= (int)SCOPE_BUFFER_SIZE) {
+            s_first_sample -= (int)SCOPE_BUFFER_SIZE;
+        }
+
+        /*
+         * Dual-channel mode stores 8-bit interleaved samples:
+         * A0, A1, A0, A1, ...
+         * Force buffer start to even parity so index 0 maps consistently to A0
+         * and index 1 to A1, independent of samplerate.
+         */
+        if (s_sample_width == SCOPE_SAMPLE_WIDTH_8) {
+            if (s_first_sample & 1) {
+                --s_first_sample;
+                if (s_first_sample < 0) {
+                    s_first_sample += (int)SCOPE_BUFFER_SIZE;
+                }
             }
-
-            scope_capture_stop_hardware();
-            s_phase = SCOPE_CAPTURE_PHASE_FINALIZED;
-
-            debug("\n[scope] complete phase=%s width=%u", scope_capture_phase_name(s_phase), (unsigned)s_sample_width);
-
-            if (s_complete_handler != NULL) {
-                s_complete_handler();
-            }
-        } else {
-            s_phase = SCOPE_CAPTURE_PHASE_DISARMED;
-            debug("\n[scope] complete ignored phase=%s", scope_capture_phase_name(s_phase));
         }
     }
+
+    add_alarm_in_us(50, cleanup_callback, NULL, false);
 }
 
 static inline void scope_capture_stop_hardware(void) {
