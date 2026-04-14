@@ -55,6 +55,7 @@ typedef struct capture_trigger_gate_t {
     // prepared hardware DREQ source that signals that gate.
     bool enabled;
     uint dreq;
+    uint dma_disable_adc;
 } capture_trigger_gate_t;
 
 typedef enum coupling_t { COUPLING_DC, COUPLING_AC } coupling_t;

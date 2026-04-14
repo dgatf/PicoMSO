@@ -89,6 +89,7 @@ static pio_sm_config s_pio_config_capture;
 static pio_sm_config s_pio_config_counter;
 static pio_sm_config s_pio_config_mux;
 static pio_sm_config s_pio_config_trigger[LOGIC_CAPTURE_MAX_TRIGGER_COUNT];
+static uint s_dma_disable_adc;
 
 static void (*s_complete_handler)(void) = NULL;
 
@@ -228,7 +229,7 @@ static int64_t cleanup_callback(alarm_id_t id, void *user_data) {
 
 static inline void logic_capture_complete_handler(void) {
     pio_interrupt_clear(pio0, 1u);
-
+    dma_channel_start(s_dma_disable_adc);
     debug("\n[logic] complete irq entered phase=%s transfer_count=%lu", logic_capture_phase_name(s_phase),
           (unsigned long)dma_hw->ch[s_dma_capture].transfer_count);
     if (s_phase != LOGIC_CAPTURE_PHASE_CAPTURING) {
@@ -357,7 +358,7 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
     s_logic_capture_config = *config;
     s_logic_capture_config.channels = LOGIC_CAPTURE_CHANNEL_COUNT;
     s_capture_read_offset_bytes = 0u;
-
+    s_dma_disable_adc = trigger_gate->dma_disable_adc;
     {
         const uint32_t samples = config->total_samples;
         const uint32_t rate = config->rate;
@@ -459,6 +460,7 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
         channel_config_set_write_increment(&dma_cfg, false);
         channel_config_set_read_increment(&dma_cfg, false);
         channel_config_set_dreq(&dma_cfg, pio_get_dreq(pio0, s_sm_counter, false));
+        channel_config_set_chain_to(&dma_cfg, s_dma_disable_adc);
         dma_channel_configure(s_dma_halt_capture, &dma_cfg, &pio0->ctrl, &s_pio_ctrl_halt, 1u, false);
     }
 
@@ -521,8 +523,6 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
             pio_sm_put(pio0, s_sm_counter, 255);
         }
     }
-
-    trigger_gate->dreq = pio_get_dreq(pio0, s_sm_counter, false);
 
     activation->pio0_enable_mask = trigger_gate->enabled
                                        ? (1u << s_sm_capture) | (1u << s_sm_mux) | (1u << s_sm_counter)

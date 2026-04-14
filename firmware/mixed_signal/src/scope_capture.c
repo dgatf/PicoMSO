@@ -193,6 +193,7 @@ static int64_t cleanup_callback(alarm_id_t id, void *user_data) {
     if (s_complete_handler != NULL) {
         s_complete_handler();
     }
+    return 0;
 }
 
 static inline void scope_capture_complete_handler(void) {
@@ -241,7 +242,7 @@ static inline void scope_capture_complete_handler(void) {
         }
     }
 
-    add_alarm_in_us(100, cleanup_callback, NULL, false);
+    add_alarm_in_us(10, cleanup_callback, NULL, false);
 }
 
 static inline void scope_capture_stop_hardware(void) {
@@ -397,7 +398,7 @@ void scope_capture_reset(void) {
 }
 
 bool scope_capture_prepare(const capture_config_t *config, complete_handler_t handler,
-                           const capture_trigger_gate_t *trigger_gate) {
+                           capture_trigger_gate_t *trigger_gate) {
     if (config == NULL || handler == NULL || trigger_gate == NULL) {
         debug("\n[scope] prepare rejected reason=bad_args config=%u handler=%u gate=%u", config != NULL,
               handler != NULL, trigger_gate != NULL);
@@ -424,6 +425,7 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
     s_complete_handler = handler;
     s_scope_capture_config = *config;
     s_reload_counter = SCOPE_BUFFER_SIZE;
+    trigger_gate->dma_disable_adc = s_dma_disable_adc;
 
     if (s_scope_capture_config.channels == 0u) {
         s_scope_capture_config.channels = 1u;
@@ -500,7 +502,6 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
         channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
         channel_config_set_write_increment(&dma_cfg, false);
         channel_config_set_read_increment(&dma_cfg, false);
-        channel_config_set_dreq(&dma_cfg, s_trigger_gate.dreq);
         irq_set_exclusive_handler(DMA_IRQ_0, scope_capture_complete_handler);
         irq_set_enabled(DMA_IRQ_0, true);
         dma_channel_set_irq0_enabled(s_dma_disable_adc, true);
@@ -531,7 +532,6 @@ bool scope_capture_arm(void) {
     }
 
     dma_channel_start(s_dma_capture);
-    dma_channel_start(s_dma_disable_adc);
 
     s_activation_armed = true;
 

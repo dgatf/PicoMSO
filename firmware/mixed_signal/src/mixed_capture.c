@@ -7,11 +7,10 @@
  * the Free Software Foundation, version 3.
  */
 
- #include "mixed_capture.h"
+#include "mixed_capture.h"
 
 #include "hardware/adc.h"
 #include "hardware/pio.h"
-
 #include "logic_capture.h"
 #include "scope_capture.h"
 
@@ -32,19 +31,19 @@ static void mixed_capture_activate(const logic_capture_activation_t *logic_activ
 
 bool mixed_capture_start(const capture_config_t *logic_config, const capture_config_t *scope_config,
                          complete_handler_t logic_handler, complete_handler_t scope_handler) {
-    capture_trigger_gate_t trigger_gate = {.enabled = false, .dreq = 0u};
+    capture_trigger_gate_t trigger_gate = {.enabled = false, .dreq = 0u, .dma_disable_adc = 0u};
     logic_capture_activation_t logic_activation = {.pio0_enable_mask = 0u, .pio1_enable_mask = 0u};
 
     if (logic_config == NULL || scope_config == NULL || logic_handler == NULL || scope_handler == NULL) {
         return false;
     }
 
-    if (!logic_capture_prepare(logic_config, logic_handler, &trigger_gate, &logic_activation)) {
+    if (!scope_capture_prepare(scope_config, scope_handler, &trigger_gate)) {
+        logic_capture_reset();
         return false;
     }
 
-    if (!scope_capture_prepare(scope_config, scope_handler, &trigger_gate)) {
-        logic_capture_reset();
+    if (!logic_capture_prepare(logic_config, logic_handler, &trigger_gate, &logic_activation)) {
         return false;
     }
 
