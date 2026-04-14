@@ -58,10 +58,12 @@ static const uint s_dma_capture = 0u;
 static const uint s_dma_capture_reload = 1u;
 static const uint s_dma_init_counter = 2u;
 static const uint s_dma_halt_capture = 3u;
+static const uint s_dma_reload_trigger[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {9u, 10u};
 static const uint s_dma_trigger_to_mux[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {4u, 5u};
 
 static const uint s_triggered_channel_index[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {0u, 1u};
-static uint s_reload_counter;
+static const uint s_reload_counter = LOGIC_BUFFER_SIZE;
+static const uint s_reload_trigger_counter = 0xfffffffu;
 
 static uint s_offset_capture;
 static uint s_offset_counter;
@@ -79,7 +81,7 @@ static volatile int s_first_sample;
 static volatile int s_triggered_channel;
 
 static float s_clk_div;
-static uint s_pio_ctrl_halt = 0;
+static uint s_pio_ctrl_halt = 1 << s_sm_counter;
 
 static uint16_t s_sample_buffer[LOGIC_BUFFER_SIZE] __attribute__((aligned(LOGIC_BUFFER_SIZE * sizeof(uint16_t))));
 
@@ -97,6 +99,7 @@ static inline void logic_capture_complete_handler(void);
 static inline void logic_capture_stop_hardware(void);
 static void logic_capture_configure_inputs(void);
 static uint16_t logic_capture_get_sample_index(int index);
+static int64_t cleanup_callback(alarm_id_t id, void *user_data);
 
 static const char *logic_capture_phase_name(logic_capture_phase_t phase) {
     switch (phase) {
@@ -143,22 +146,35 @@ static inline bool logic_capture_configure_trigger(trigger_t trigger) {
             break;
     }
 
-    sm_config_set_clkdiv(&s_pio_config_trigger[s_trigger_count], s_clk_div);
+    sm_config_set_clkdiv(&s_pio_config_trigger[s_trigger_count], 1.0f);
     sm_config_set_in_pins(&s_pio_config_trigger[s_trigger_count], trigger.pin);
+    pio1->instr_mem[s_offset_trigger[s_trigger_count]] = pio_encode_set(pio_x, s_trigger_count);
     pio_sm_init(pio1, s_sm_trigger[s_trigger_count], s_offset_trigger[s_trigger_count],
                 &s_pio_config_trigger[s_trigger_count]);
 
     s_sm_trigger_mask |= 1u << s_sm_trigger[s_trigger_count];
 
+    // DMA trigger to mux
     {
         dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_trigger_to_mux[s_trigger_count]);
         channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
         channel_config_set_write_increment(&dma_cfg, false);
         channel_config_set_read_increment(&dma_cfg, false);
+        channel_config_set_chain_to(&dma_cfg, s_dma_reload_trigger[s_trigger_count]);
         channel_config_set_dreq(&dma_cfg, pio_get_dreq(pio1, s_sm_trigger[s_trigger_count], false));
-
         dma_channel_configure(s_dma_trigger_to_mux[s_trigger_count], &dma_cfg, &pio0->txf[s_sm_mux],
-                              &s_triggered_channel_index[s_trigger_count], 1u, false);
+                              &s_triggered_channel_index[s_trigger_count], 0x0fffffff, false);
+    }
+
+    // DMA reload trigger
+    {
+        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_reload_trigger[s_trigger_count]);
+        channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+        channel_config_set_write_increment(&dma_cfg, false);
+        channel_config_set_read_increment(&dma_cfg, false);
+        dma_channel_configure(s_dma_reload_trigger[s_trigger_count], &dma_cfg,
+                              &dma_hw->ch[s_dma_trigger_to_mux[s_trigger_count]].al1_transfer_count_trig,
+                              &s_reload_trigger_counter, 1u, false);
     }
 
     if (debug_is_enabled()) {
@@ -190,7 +206,14 @@ static inline bool logic_capture_configure_trigger(trigger_t trigger) {
 static inline void logic_capture_trigger_handler(void) {
     pio_interrupt_clear(pio0, 0u);
     s_triggered_channel = pio_sm_get(pio0, s_sm_mux);
-    debug("\n[logic] trigger fired channel=%d", s_triggered_channel);
+    debug("\n[logic] triggered");
+}
+
+static int64_t cleanup_callback(alarm_id_t id, void *user_data) {
+    (void)id;
+    (void)user_data;
+    logic_capture_stop_hardware();
+    return 0;
 }
 
 static inline void logic_capture_complete_handler(void) {
@@ -204,12 +227,13 @@ static inline void logic_capture_complete_handler(void) {
     }
 
     int pos = LOGIC_BUFFER_SIZE - dma_hw->ch[s_dma_capture].transfer_count;
-    s_first_sample = pos - s_pre_trigger_samples - s_post_trigger_samples - 6u;
+    s_first_sample = pos - s_pre_trigger_samples - s_post_trigger_samples;
     if (s_first_sample < 0) {
         s_first_sample += LOGIC_BUFFER_SIZE;
     }
 
     logic_capture_stop_hardware();
+    add_alarm_in_us(10, cleanup_callback, NULL, false);
     s_phase = LOGIC_CAPTURE_PHASE_FINALIZED;
 
     debug("\n[logic] complete phase=%s triggered_channel=%d", logic_capture_phase_name(s_phase), s_triggered_channel);
@@ -227,15 +251,18 @@ static inline void logic_capture_stop_hardware(void) {
 
     dma_channel_abort(s_dma_capture);
     dma_channel_abort(s_dma_capture_reload);
-    dma_channel_abort(s_dma_init_counter);
     dma_channel_abort(s_dma_halt_capture);
 
     for (uint i = 0u; i < s_trigger_count; ++i) {
         dma_channel_abort(s_dma_trigger_to_mux[i]);
+        dma_channel_abort(s_dma_reload_trigger[i]);
         pio_sm_clear_fifos(pio1, s_sm_trigger[i]);
     }
 
-    if (s_trigger_count) pio_sm_clear_fifos(pio0, s_sm_mux);
+    if (s_trigger_count) {
+        dma_channel_abort(s_dma_init_counter);
+        pio_sm_clear_fifos(pio0, s_sm_mux);
+    }
     pio_sm_clear_fifos(pio0, s_sm_capture);
     pio_sm_clear_fifos(pio0, s_sm_counter);
     pio_clear_instruction_memory(pio0);
@@ -370,7 +397,6 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
     s_sm_trigger_mask = 0u;
     s_triggered_channel = -1;
     s_activation_armed = false;
-    s_reload_counter = LOGIC_BUFFER_SIZE;
 
     if (s_rate > LOGIC_CAPTURE_RATE_CHANGE_CLK_HZ) {
         if (clock_get_hz(clk_sys) != 200000000u) {
@@ -462,12 +488,19 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
 
     // PIO trigger mux
     if (trigger_gate->enabled) {
-        s_offset_mux = pio_add_program(pio0, &mux_program);
-        s_pio_config_mux = mux_program_get_default_config(s_offset_mux);
-        sm_config_set_clkdiv(&s_pio_config_mux, 1.0f);
         pio_interrupt_clear(pio0, 0u);
         pio_set_irq0_source_enabled(pio0, (enum pio_interrupt_source)pis_interrupt0, true);
-        pio_sm_init(pio0, s_sm_mux, s_offset_mux, &s_pio_config_mux);
+        if (s_trigger_count == 1u) {
+            s_offset_mux = pio_add_program(pio0, &mux_program);
+            s_pio_config_mux = mux_program_get_default_config(s_offset_mux);
+            sm_config_set_clkdiv(&s_pio_config_mux, 1.0f);
+            pio_sm_init(pio0, s_sm_mux, s_offset_mux, &s_pio_config_mux);
+        } else {
+            s_offset_mux = pio_add_program(pio0, &mux_2_program);
+            s_pio_config_mux = mux_2_program_get_default_config(s_offset_mux);
+            sm_config_set_clkdiv(&s_pio_config_mux, 1.0f);
+            pio_sm_init(pio0, s_sm_mux, s_offset_mux + mux_2_offset_entry_point, &s_pio_config_mux);
+        }
         irq_set_exclusive_handler(PIO0_IRQ_0, logic_capture_trigger_handler);
         irq_set_enabled(PIO0_IRQ_0, true);
     }
@@ -515,10 +548,10 @@ bool logic_capture_arm(void) {
     }
 
     dma_channel_start(s_dma_capture);
-    dma_channel_start(s_dma_init_counter);
     dma_channel_start(s_dma_halt_capture);
 
     if (s_sm_trigger_mask) {
+        dma_channel_start(s_dma_init_counter);
         for (uint i = 0u; i < s_trigger_count; ++i) {
             dma_channel_start(s_dma_trigger_to_mux[i]);
         }

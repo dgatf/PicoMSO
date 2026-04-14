@@ -24,36 +24,89 @@ halt:
     jmp halt
 
 .program trigger_level_high
+    set x 0 // 0 to n triggers
+    mov isr x
+.wrap_target
     wait 1 pin 0 
     wait 1 pin 0 
     push
-halt:
-    jmp halt
+    wait irq 7
+.wrap
 
 .program trigger_level_low
+    set x 0 // 0 to n triggers
+    mov isr x
+.wrap_target
     wait 0 pin 0
     wait 0 pin 0
     push
-halt:
-    jmp halt
+    wait irq 7
+.wrap
 
 .program trigger_edge_high
+    set x 0 // 0 to n triggers
+    mov isr x
+.wrap_target
     wait 0 pin 0
     wait 1 pin 0
     push
-halt:
-    jmp halt
+    wait irq 7
+.wrap
+
 
 .program trigger_edge_low
+    set x 0 // 0 to n triggers
+    mov isr x
+.wrap_target
     wait 1 pin 0
     wait 0 pin 0
     push
-halt:
-    jmp halt
+    wait irq 7
+.wrap
 
 .program mux
     pull
-    mov isr osr
+    push
+    irq 0
+halt:
+    jmp halt
+
+.program mux_2
+.wrap_target
+    pull noblock
+    pull noblock
+    irq 7
+    irq 7
+    irq clear 7
+public entry_point:
+    pull [31]
+    mov x osr [31]
+    pull noblock
+    mov y osr
+    jmp x!=y trigger
+.wrap
+trigger:
+    push
+    irq 0
+halt:
+    jmp halt
+
+.program mux_3
+.wrap_target
+loop:
+    irq 7
+    pull
+    mov x osr
+    pull noblock
+    mov y osr
+    jmp x!=y cont
+    jmp loop
+cont:
+    pull noblock
+    mov x osr
+    jmp x!=y trigger
+.wrap
+trigger:
     push
     irq 0
 halt:
