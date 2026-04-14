@@ -1,10 +1,10 @@
 # PicoMSO
 
-PicoMSO is an RP2040/RP2350-based mixed-signal instrument that combines a
-hardware-triggered logic analyzer and oscilloscope into a single firmware and
-libsigrok-compatible device.
+PicoMSO is a **high-performance mixed-signal instrument** based on RP2040/RP2350,
+combining a hardware-triggered logic analyzer and oscilloscope into a single
+firmware and libsigrok-compatible device.
 
-It enables **synchronized digital and analog capture** with deterministic,
+It enables **synchronized digital and analog capture** with fully deterministic,
 hardware-level triggering using PIO and DMA.
 
 ---
@@ -13,7 +13,7 @@ hardware-level triggering using PIO and DMA.
 
 - Mixed-signal capture (logic + analog in one session)
 - Deterministic **hardware triggering (PIO + DMA)**
-- No sample loss or software-trigger latency
+- No sample loss and zero software-trigger latency
 - Seamless integration with **libsigrok** and **PulseView**
 - Support for **RP2040** and **RP2350**
 - Prebuilt **PicoMSO Desktop binaries** for easy setup
@@ -29,7 +29,7 @@ hardware-level triggering using PIO and DMA.
 - **Capture depth:**
   - RP2040: up to **30 ksamples**
   - RP2350: up to **60 ksamples**
-- **Triggering:** level and edge (hardware, real-time)
+- **Triggering:** level and edge, multi-trigger AND (hardware, real-time)
 
 ### Oscilloscope
 
@@ -55,7 +55,7 @@ hardware-level triggering using PIO and DMA.
 - Analog enabled → **max 2 MS/s**
 - Logic-only → up to **200 MHz**
 
-Requests beyond limits are rejected by the driver.
+Requests beyond these limits are automatically rejected by the driver.
 
 ---
 
@@ -63,9 +63,9 @@ Requests beyond limits are rejected by the driver.
 
 PicoMSO implements triggering entirely in hardware using **PIO + DMA**:
 
-- No firmware latency
+- Zero firmware latency
 - No missed samples
-- Fully deterministic capture start
+- Deterministic, cycle-accurate capture start
 
 This is a key difference compared to host-triggered devices.
 
@@ -131,8 +131,8 @@ sudo udevadm trigger
 PicoMSO works directly with PulseView for interactive visualization of
 mixed-signal captures.
 
-![PicoMSO PulseView example](docs/images/picomso-pulseview-uart.png)
-![PicoMSO PulseView example](docs/images/picomso-pulseview-i2c.png)
+![UART decode example](docs/images/picomso-pulseview-uart.png)
+![I2C decode example](docs/images/picomso-pulseview-i2c.png)
 
 ---
 
@@ -164,19 +164,21 @@ For best results on high-speed logic signals:
 - Add ~**600 Ω series resistor**
 - Optional RC filtering for noisy environments
 
-This significantly improves trigger stability and reduces glitches.
+This significantly improves trigger stability and reduces high-speed glitches.
 
 ---
 
 ## Status
 
-PicoMSO is stable and fully functional for core mixed-signal capture.
+PicoMSO is stable and production-ready for core mixed-signal capture.
 
 Planned improvements:
 
 - Analog triggering
 - Enhanced RP2350 support
 - Extended capture configurations
+
+The v1 firmware architecture is complete and validated up to 200 MHz logic capture with hardware triggers.
 
 ---
 
