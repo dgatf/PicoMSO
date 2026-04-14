@@ -212,7 +212,17 @@ static inline void logic_capture_trigger_handler(void) {
 static int64_t cleanup_callback(alarm_id_t id, void *user_data) {
     (void)id;
     (void)user_data;
+
     logic_capture_stop_hardware();
+    
+    s_phase = LOGIC_CAPTURE_PHASE_FINALIZED;
+
+    debug("\n[logic] complete phase=%s triggered_channel=%d", logic_capture_phase_name(s_phase), s_triggered_channel);
+
+    if (s_complete_handler != NULL) {
+        s_complete_handler();
+    }
+
     return 0;
 }
 
@@ -232,15 +242,7 @@ static inline void logic_capture_complete_handler(void) {
         s_first_sample += LOGIC_BUFFER_SIZE;
     }
 
-    logic_capture_stop_hardware();
     add_alarm_in_us(10, cleanup_callback, NULL, false);
-    s_phase = LOGIC_CAPTURE_PHASE_FINALIZED;
-
-    debug("\n[logic] complete phase=%s triggered_channel=%d", logic_capture_phase_name(s_phase), s_triggered_channel);
-
-    if (s_complete_handler != NULL) {
-        s_complete_handler();
-    }
 }
 
 static inline void logic_capture_stop_hardware(void) {
