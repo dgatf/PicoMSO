@@ -23,12 +23,11 @@
 static void mixed_capture_activate(const logic_capture_activation_t *logic_activation) {
     if (logic_activation == NULL) return;
 
+    scope_capture_mark_capturing();
+    logic_capture_mark_capturing();
     adc_run(true);
     pio0->ctrl = logic_activation->pio0_enable_mask;
     if (logic_activation->pio1_enable_mask) pio1->ctrl = logic_activation->pio1_enable_mask;
-
-    scope_capture_mark_capturing();
-    logic_capture_mark_capturing();
 }
 
 bool mixed_capture_start(const capture_config_t *logic_config, const capture_config_t *scope_config,

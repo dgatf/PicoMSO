@@ -241,7 +241,7 @@ static inline void scope_capture_complete_handler(void) {
         }
     }
 
-    add_alarm_in_us(50, cleanup_callback, NULL, false);
+    add_alarm_in_us(100, cleanup_callback, NULL, false);
 }
 
 static inline void scope_capture_stop_hardware(void) {

@@ -242,7 +242,7 @@ static inline void logic_capture_complete_handler(void) {
         s_first_sample += LOGIC_BUFFER_SIZE;
     }
 
-    add_alarm_in_us(50, cleanup_callback, NULL, false);
+    add_alarm_in_us(100, cleanup_callback, NULL, false);
 }
 
 static inline void logic_capture_stop_hardware(void) {
