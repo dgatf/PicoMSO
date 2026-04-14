@@ -81,7 +81,7 @@ static volatile int s_first_sample;
 static volatile int s_triggered_channel;
 
 static float s_clk_div;
-static uint s_pio_ctrl_halt = 0;
+static uint s_pio_ctrl_halt = 1 << s_sm_counter;
 
 static uint16_t s_sample_buffer[LOGIC_BUFFER_SIZE] __attribute__((aligned(LOGIC_BUFFER_SIZE * sizeof(uint16_t))));
 
@@ -99,6 +99,7 @@ static inline void logic_capture_complete_handler(void);
 static inline void logic_capture_stop_hardware(void);
 static void logic_capture_configure_inputs(void);
 static uint16_t logic_capture_get_sample_index(int index);
+static int64_t cleanup_callback(alarm_id_t id, void *user_data);
 
 static const char *logic_capture_phase_name(logic_capture_phase_t phase) {
     switch (phase) {
@@ -208,6 +209,13 @@ static inline void logic_capture_trigger_handler(void) {
     debug("\n[logic] triggered");
 }
 
+static int64_t cleanup_callback(alarm_id_t id, void *user_data) {
+    (void)id;
+    (void)user_data;
+    logic_capture_stop_hardware();
+    return 0;
+}
+
 static inline void logic_capture_complete_handler(void) {
     pio_interrupt_clear(pio0, 1u);
 
@@ -219,12 +227,13 @@ static inline void logic_capture_complete_handler(void) {
     }
 
     int pos = LOGIC_BUFFER_SIZE - dma_hw->ch[s_dma_capture].transfer_count;
-    s_first_sample = pos - s_pre_trigger_samples - s_post_trigger_samples - 6u;
+    s_first_sample = pos - s_pre_trigger_samples - s_post_trigger_samples;
     if (s_first_sample < 0) {
         s_first_sample += LOGIC_BUFFER_SIZE;
     }
 
     logic_capture_stop_hardware();
+    add_alarm_in_us(10, cleanup_callback, NULL, false);
     s_phase = LOGIC_CAPTURE_PHASE_FINALIZED;
 
     debug("\n[logic] complete phase=%s triggered_channel=%d", logic_capture_phase_name(s_phase), s_triggered_channel);
