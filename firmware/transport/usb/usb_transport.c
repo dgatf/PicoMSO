@@ -49,6 +49,7 @@
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include "usb.h"
+#include "usb_config.h"
 
 /* Maximum bytes for a single incoming control packet:
  * 8-byte protocol header + up to 512 bytes of payload. */
@@ -111,36 +112,30 @@ static transport_result_t usb_transport_send_cb(void *user_data,
         return TRANSPORT_ERR_NOT_READY;
     }
 
-    struct usb_endpoint_configuration *ep =
-        usb_get_endpoint_configuration(EP6_IN_ADDR);
-    if (ep == NULL) {
-        return TRANSPORT_ERR_IO;
-    }
-
     /* Bind caller's buffer so the USB driver copies it into DPRAM.
      * usb_endpoint_configuration.data_buffer is uint8_t * (not const);
      * we cannot change that struct definition (it lives in usb_config.h,
      * used as-is).  The driver only reads from data_buffer when the
      * endpoint is IN (TX), so the cast is safe. */
-    ep->data_buffer      = (uint8_t *)(uintptr_t)buf;
-    ep->data_buffer_size = len;
+    usb_set_endpoint_buffer(EP6_IN_ADDR, (uint8_t *)(uintptr_t)buf);
+    usb_set_endpoint_buffer_size(EP6_IN_ADDR, len);
 
-    usb_init_transfer(ep, (int32_t)len);
+    usb_init_transfer(EP6_IN_ADDR, (int32_t)len);
 
     /* Block until the bulk transfer completes or timeout elapses. */
     absolute_time_t deadline = make_timeout_time_us(USB_TRANSPORT_SEND_TIMEOUT_US);
-    while (!ep->is_completed) {
+    while (!usb_is_completed(EP6_IN_ADDR)) {
         if (time_reached(deadline)) {
-            usb_cancel_transfer(ep);
-            ep->data_buffer      = NULL;
-            ep->data_buffer_size = 0;
+            usb_cancel_transfer(EP6_IN_ADDR);
+            usb_set_endpoint_buffer(EP6_IN_ADDR, NULL);
+            usb_set_endpoint_buffer_size(EP6_IN_ADDR, 0);
             return TRANSPORT_ERR_IO;
         }
         tight_loop_contents();
     }
 
-    ep->data_buffer      = NULL;
-    ep->data_buffer_size = 0;
+    usb_set_endpoint_buffer(EP6_IN_ADDR, NULL);
+    usb_set_endpoint_buffer_size(EP6_IN_ADDR, 0);
 
     return TRANSPORT_OK;
 }
@@ -179,7 +174,7 @@ static transport_result_t usb_transport_receive_cb(void *user_data,
 
 void usb_transport_init(void)
 {
-    usb_device_init();
+    usb_device_init(dev_configs);
 }
 
 const transport_interface_t usb_transport_iface = {

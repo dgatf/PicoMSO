@@ -7,7 +7,8 @@
 #
 # File roles:
 #   usb_common.h        - Generic USB standard definitions (constants, packed structs)
-#   usb.h / usb.c       - Generic USB device driver (hardware register access, IRQ handler)
+#   usb.h / usb.c       - PicoMSO-specific USB device configuration instance
+#                         (compiled as part of picomso_usb_transport)
 #   usb_config.h        - PicoMSO-specific USB descriptor and endpoint configuration
 #   usb_config.c        - PicoMSO-specific USB device configuration instance
 #                         (usb_config.c is #included by usb.c, not compiled separately)
@@ -15,19 +16,21 @@
 #                         provides control_transfer_handler and usb_transport_iface
 
 add_library(picomso_usb_transport STATIC
-    usb.c
+    usb_config.c
     usb_transport.c
 )
 
 target_include_directories(picomso_usb_transport
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../external/usb_library_rp2040/src
 )
 
 # Requires Pico SDK hardware libraries.  No TinyUSB dependency.
 # Also links picomso_transport for the transport_interface_t definition.
 target_link_libraries(picomso_usb_transport
     PUBLIC
+        usb_library_rp2040
         hardware_irq
         hardware_resets
         pico_stdlib
