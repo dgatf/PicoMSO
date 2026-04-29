@@ -49,6 +49,6 @@ struct usb_device_configuration dev_configs[] = {
                    {
                        .descriptor = &ep6_in,
                        .handler = NULL,
-                       .double_buffer = true,
+                       .double_buffer = false,
                        .data_buffer = NULL,
                    }}}};
