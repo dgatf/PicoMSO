@@ -13,6 +13,4 @@ target_include_directories(picomso_transport
 
 # USB transport backend (requires Pico SDK; skip it when this directory is
 # consumed without the Pico SDK having been initialized by a parent project).
-if(TARGET pico_stdlib)
-    add_subdirectory(usb)
-endif()
+add_subdirectory(usb)

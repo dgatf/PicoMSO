@@ -23,7 +23,6 @@ add_library(picomso_usb_transport STATIC
 target_include_directories(picomso_usb_transport
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../external/usb_library_rp2040/src
 )
 
 # Requires Pico SDK hardware libraries.  No TinyUSB dependency.
