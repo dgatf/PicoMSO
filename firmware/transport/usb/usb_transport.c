@@ -120,11 +120,15 @@ static transport_result_t usb_transport_send_cb(void *user_data,
     usb_set_endpoint_buffer(EP6_IN_ADDR, (uint8_t *)(uintptr_t)buf);
     usb_set_endpoint_buffer_size(EP6_IN_ADDR, len);
 
-    usb_init_transfer(EP6_IN_ADDR, (int32_t)len);
+    if (!usb_init_transfer(EP6_IN_ADDR, (int32_t)len)) {
+        usb_set_endpoint_buffer(EP6_IN_ADDR, NULL);
+        usb_set_endpoint_buffer_size(EP6_IN_ADDR, 0);
+        return TRANSPORT_ERR_IO;
+    }
 
     /* Block until the bulk transfer completes or timeout elapses. */
     absolute_time_t deadline = make_timeout_time_us(USB_TRANSPORT_SEND_TIMEOUT_US);
-    while (!usb_is_completed(EP6_IN_ADDR)) {
+    while (usb_is_busy(EP6_IN_ADDR)) {
         if (time_reached(deadline)) {
             usb_cancel_transfer(EP6_IN_ADDR);
             usb_set_endpoint_buffer(EP6_IN_ADDR, NULL);

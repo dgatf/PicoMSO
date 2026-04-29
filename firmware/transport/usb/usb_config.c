@@ -49,6 +49,9 @@ struct usb_device_configuration dev_configs[] = {
                    {
                        .descriptor = &ep6_in,
                        .handler = NULL,
-                       .double_buffer = false,
+                       .double_buffer = false,  // Single-buffer: new library eagerly queues a ZLP in buffer B for
+                                               // transfers shorter than wMaxPacketSize, which desynchronises the
+                                               // host bulk reads (libsigrok receives the stale ZLP instead of the
+                                               // next response).
                        .data_buffer = NULL,
                    }}}};
