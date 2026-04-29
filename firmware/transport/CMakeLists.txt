@@ -11,8 +11,8 @@ target_include_directories(picomso_transport
 # It does not link pico_stdlib, TinyUSB, or any peripheral library.
 # Concrete backends will be separate targets that link picomso_transport.
 
-# USB transport backend (requires Pico SDK; not built when firmware/ is
-# used as a pure scaffolding include without a Pico SDK toolchain).
-#if(PICO_SDK_INITIALIZED)
-add_subdirectory(usb)
-#endif()
+# USB transport backend (requires Pico SDK; skip it when this directory is
+# consumed without the Pico SDK having been initialized by a parent project).
+if(TARGET pico_stdlib)
+    add_subdirectory(usb)
+endif()

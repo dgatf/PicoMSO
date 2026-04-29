@@ -88,6 +88,17 @@ add_subdirectory(../protocol     ${CMAKE_BINARY_DIR}/picomso_protocol)
 add_subdirectory(../transport    ${CMAKE_BINARY_DIR}/picomso_transport)
 add_subdirectory(../integration  ${CMAKE_BINARY_DIR}/picomso_integration)
 
+if(NOT TARGET picomso_usb_transport)
+    message(FATAL_ERROR
+        "USB transport target not available.\n"
+        "\n"
+        "Expected target:\n"
+        "  picomso_usb_transport\n"
+        "\n"
+        "Please ensure the Pico SDK submodule is initialized and the USB\n"
+        "transport sources are available before configuring the application.\n")
+endif()
+
 # ── Executable ───────────────────────────────────────────────────────────────
 
 add_executable(${PROJECT_NAME}
