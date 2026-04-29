@@ -27,6 +27,7 @@
 cmake_minimum_required(VERSION 3.12)
 
 set(PICO_SDK_PATH "${CMAKE_CURRENT_LIST_DIR}/../../external/pico-sdk")
+set(USB_LIBRARY_RP2040_PATH "${CMAKE_CURRENT_LIST_DIR}/../../external/usb_library_rp2040")
 
 if(NOT EXISTS "${PICO_SDK_PATH}/external/pico_sdk_import.cmake")
     message(FATAL_ERROR
@@ -34,6 +35,17 @@ if(NOT EXISTS "${PICO_SDK_PATH}/external/pico_sdk_import.cmake")
         "\n"
         "Expected at:\n"
         "  ${PICO_SDK_PATH}\n"
+        "\n"
+        "Please run:\n"
+        "  git submodule update --init --recursive\n")
+endif()
+
+if(NOT EXISTS "${USB_LIBRARY_RP2040_PATH}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "usb_library_rp2040 submodule not found.\n"
+        "\n"
+        "Expected at:\n"
+        "  ${USB_LIBRARY_RP2040_PATH}\n"
         "\n"
         "Please run:\n"
         "  git submodule update --init --recursive\n")
@@ -82,11 +94,23 @@ add_compile_definitions(
 # share the build directory tree with the main executable without conflicting
 # with any other project build.
 
-add_subdirectory(../common       ${CMAKE_BINARY_DIR}/picomso_common)
-add_subdirectory(../mixed_signal ${CMAKE_BINARY_DIR}/picomso_mixed_signal)
-add_subdirectory(../protocol     ${CMAKE_BINARY_DIR}/picomso_protocol)
-add_subdirectory(../transport    ${CMAKE_BINARY_DIR}/picomso_transport)
-add_subdirectory(../integration  ${CMAKE_BINARY_DIR}/picomso_integration)
+add_subdirectory(../common                ${CMAKE_BINARY_DIR}/picomso_common)
+add_subdirectory(../mixed_signal          ${CMAKE_BINARY_DIR}/picomso_mixed_signal)
+add_subdirectory(../protocol              ${CMAKE_BINARY_DIR}/picomso_protocol)
+add_subdirectory(${USB_LIBRARY_RP2040_PATH} ${CMAKE_BINARY_DIR}/usb_library_rp2040)
+add_subdirectory(../transport             ${CMAKE_BINARY_DIR}/picomso_transport)
+add_subdirectory(../integration           ${CMAKE_BINARY_DIR}/picomso_integration)
+
+if(NOT TARGET picomso_usb_transport)
+    message(FATAL_ERROR
+        "USB transport target not available.\n"
+        "\n"
+        "Expected target:\n"
+        "  picomso_usb_transport\n"
+        "\n"
+        "Please ensure the Pico SDK submodule is initialized and the USB\n"
+        "transport sources are available before configuring the application.\n")
+endif()
 
 # ── Executable ───────────────────────────────────────────────────────────────
 
