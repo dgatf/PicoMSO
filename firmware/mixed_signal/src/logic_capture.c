@@ -58,11 +58,13 @@ static const uint s_dma_capture = 0u;
 static const uint s_dma_capture_reload = 1u;
 static const uint s_dma_init_counter = 2u;
 static const uint s_dma_halt_capture = 3u;
+static const uint s_dma_capture_reload_rearm = 11u;
 static const uint s_dma_reload_trigger[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {9u, 10u};
 static const uint s_dma_trigger_to_mux[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {4u, 5u};
 
 static const uint s_triggered_channel_index[LOGIC_CAPTURE_MAX_TRIGGER_COUNT] = {0u, 1u};
 static const uint s_reload_counter = LOGIC_BUFFER_SIZE;
+static const uint s_reload_single_transfer = 1u;
 static const uint s_reload_trigger_counter = 0xfffffffu;
 
 static uint s_offset_capture;
@@ -254,6 +256,7 @@ static inline void logic_capture_stop_hardware(void) {
 
     dma_channel_abort(s_dma_capture);
     dma_channel_abort(s_dma_capture_reload);
+    dma_channel_abort(s_dma_capture_reload_rearm);
     dma_channel_abort(s_dma_halt_capture);
 
     for (uint i = 0u; i < s_trigger_count; ++i) {
@@ -449,8 +452,20 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
         channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
         channel_config_set_write_increment(&dma_cfg, false);
         channel_config_set_read_increment(&dma_cfg, false);
+        channel_config_set_chain_to(&dma_cfg, s_dma_capture_reload_rearm);
         dma_channel_configure(s_dma_capture_reload, &dma_cfg, &dma_hw->ch[s_dma_capture].al1_transfer_count_trig,
                               &s_reload_counter, 1u, false);
+    }
+
+    // DMA rearm capture reload
+    {
+        dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_capture_reload_rearm);
+        channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
+        channel_config_set_write_increment(&dma_cfg, false);
+        channel_config_set_read_increment(&dma_cfg, false);
+        channel_config_set_chain_to(&dma_cfg, s_dma_capture_reload_rearm);
+        dma_channel_configure(s_dma_capture_reload_rearm, &dma_cfg, &dma_hw->ch[s_dma_capture_reload].transfer_count,
+                              &s_reload_single_transfer, 1u, false);
     }
 
     // DMA halt capture when counter pushes
