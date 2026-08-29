@@ -463,7 +463,6 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
         channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
         channel_config_set_write_increment(&dma_cfg, false);
         channel_config_set_read_increment(&dma_cfg, false);
-        channel_config_set_chain_to(&dma_cfg, s_dma_capture_reload_rearm);
         dma_channel_configure(s_dma_capture_reload_rearm, &dma_cfg, &dma_hw->ch[s_dma_capture_reload].transfer_count,
                               &s_reload_single_transfer, 1u, false);
     }
