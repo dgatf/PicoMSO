@@ -255,9 +255,7 @@ static int64_t cleanup_callback(alarm_id_t id, void *user_data) {
 
     debug("\n[logic][%llu us] cleanup_callback enter phase=%s",
           (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase));
-    if (debug_is_enabled()) {
-        logic_capture_debug_dma_state("CLEANUP-BEFORE-STOP");
-    }
+    logic_capture_debug_dma_state("CLEANUP-BEFORE-STOP");
 
     logic_capture_stop_hardware();
 
@@ -423,9 +421,7 @@ void logic_capture_reset(void) {
     debug("\n[logic][%llu us] reset begin phase=%s total_samples=%lu read_offset=%lu",
           (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase),
           (unsigned long)s_logic_capture_config.total_samples, (unsigned long)s_capture_read_offset_bytes);
-    if (debug_is_enabled()) {
-        logic_capture_debug_dma_state("RESET-BEFORE");
-    }
+    logic_capture_debug_dma_state("RESET-BEFORE");
 
     if (clock_get_hz(clk_sys) != 100000000u) {
         set_sys_clock_khz(100000u, true);
@@ -453,9 +449,7 @@ void logic_capture_reset(void) {
 
     debug("\n[logic][%llu us] reset done phase=%s",
           (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase));
-    if (debug_is_enabled()) {
-        logic_capture_debug_dma_state("RESET-AFTER");
-    }
+    logic_capture_debug_dma_state("RESET-AFTER");
 }
 
 bool logic_capture_prepare(const capture_config_t *config, complete_handler_t handler,
@@ -689,9 +683,7 @@ bool logic_capture_arm(void) {
 
     debug("\n[logic][%llu us] arm begin phase=%s",
           (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase));
-    if (debug_is_enabled()) {
-        logic_capture_debug_dma_state("ARM-BEFORE");
-    }
+    logic_capture_debug_dma_state("ARM-BEFORE");
 
     dma_channel_start(s_dma_capture);
     dma_channel_start(s_dma_halt_capture);
@@ -709,9 +701,7 @@ bool logic_capture_arm(void) {
                 (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase),
                 s_pre_trigger_samples + s_post_trigger_samples, s_rate,
                 s_pre_trigger_samples, s_post_trigger_samples, s_trigger_count);
-    if (debug_is_enabled()) {
-        logic_capture_debug_dma_state("ARM-AFTER");
-    }
+    logic_capture_debug_dma_state("ARM-AFTER");
 
     return true;
 }
