@@ -46,6 +46,7 @@ void logic_capture_mark_capturing(void);
 bool logic_capture_start(const capture_config_t *config, complete_handler_t handler);
 capture_state_t logic_capture_get_state(void);
 bool logic_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len);
+void logic_capture_poll_debug(void);
 
 #ifdef __cplusplus
 }

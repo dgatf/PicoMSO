@@ -101,6 +101,7 @@ static inline void logic_capture_stop_hardware(void);
 static void logic_capture_configure_inputs(void);
 static uint16_t logic_capture_get_sample_index(int index);
 static int64_t cleanup_callback(alarm_id_t id, void *user_data);
+static void logic_capture_debug_dma_state(const char *tag);
 
 static const char *logic_capture_phase_name(logic_capture_phase_t phase) {
     switch (phase) {
@@ -117,6 +118,29 @@ static const char *logic_capture_phase_name(logic_capture_phase_t phase) {
         default:
             return "UNKNOWN";
     }
+}
+
+static void logic_capture_debug_dma_state(const char *tag) {
+    if (!debug_is_enabled()) {
+        return;
+    }
+    uint64_t ts = time_us_64();
+    debug_block("\n[logic][%llu us][%s]", (unsigned long long)ts, tag);
+    debug_block("\n  phase=%s trig=%d", logic_capture_phase_name(s_phase), s_triggered_channel);
+    debug_block("\n  cap    tc=%lu busy=%u ra=0x%08lx wa=0x%08lx",
+                (unsigned long)dma_hw->ch[s_dma_capture].transfer_count,
+                (unsigned)(dma_hw->ch[s_dma_capture].ctrl_trig >> 24) & 1u,
+                (unsigned long)dma_hw->ch[s_dma_capture].read_addr,
+                (unsigned long)dma_hw->ch[s_dma_capture].write_addr);
+    debug_block("\n  reload tc=%lu busy=%u",
+                (unsigned long)dma_hw->ch[s_dma_capture_reload].transfer_count,
+                (unsigned)(dma_hw->ch[s_dma_capture_reload].ctrl_trig >> 24) & 1u);
+    debug_block("\n  halt   tc=%lu busy=%u",
+                (unsigned long)dma_hw->ch[s_dma_halt_capture].transfer_count,
+                (unsigned)(dma_hw->ch[s_dma_halt_capture].ctrl_trig >> 24) & 1u);
+    debug_block("\n  init   tc=%lu busy=%u",
+                (unsigned long)dma_hw->ch[s_dma_init_counter].transfer_count,
+                (unsigned)(dma_hw->ch[s_dma_init_counter].ctrl_trig >> 24) & 1u);
 }
 
 static inline bool logic_capture_configure_trigger(trigger_t trigger) {
@@ -207,18 +231,40 @@ static inline bool logic_capture_configure_trigger(trigger_t trigger) {
 static inline void logic_capture_trigger_handler(void) {
     pio_interrupt_clear(pio0, 0u);
     s_triggered_channel = pio_sm_get(pio0, s_sm_mux);
-    debug("\n[logic] triggered");
+    debug("\n[logic][%llu us] triggered phase=%s triggered_channel=%d",
+          (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase), s_triggered_channel);
+    if (debug_is_enabled()) {
+        debug_block("\n  cap    tc=%lu busy=%u",
+                    (unsigned long)dma_hw->ch[s_dma_capture].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_capture].ctrl_trig >> 24) & 1u);
+        debug_block("\n  reload tc=%lu busy=%u",
+                    (unsigned long)dma_hw->ch[s_dma_capture_reload].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_capture_reload].ctrl_trig >> 24) & 1u);
+        debug_block("\n  halt   tc=%lu busy=%u",
+                    (unsigned long)dma_hw->ch[s_dma_halt_capture].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_halt_capture].ctrl_trig >> 24) & 1u);
+        debug_block("\n  init   tc=%lu busy=%u",
+                    (unsigned long)dma_hw->ch[s_dma_init_counter].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_init_counter].ctrl_trig >> 24) & 1u);
+    }
 }
 
 static int64_t cleanup_callback(alarm_id_t id, void *user_data) {
     (void)id;
     (void)user_data;
 
+    debug("\n[logic][%llu us] cleanup_callback enter phase=%s",
+          (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase));
+    if (debug_is_enabled()) {
+        logic_capture_debug_dma_state("CLEANUP-BEFORE-STOP");
+    }
+
     logic_capture_stop_hardware();
-    
+
     s_phase = LOGIC_CAPTURE_PHASE_FINALIZED;
 
-    debug("\n[logic] complete phase=%s triggered_channel=%d", logic_capture_phase_name(s_phase), s_triggered_channel);
+    debug("\n[logic][%llu us] cleanup_callback done phase=%s triggered_channel=%d",
+          (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase), s_triggered_channel);
 
     if (s_complete_handler != NULL) {
         s_complete_handler();
@@ -230,10 +276,37 @@ static int64_t cleanup_callback(alarm_id_t id, void *user_data) {
 static inline void logic_capture_complete_handler(void) {
     pio_interrupt_clear(pio0, 1u);
     dma_channel_start(s_dma_disable_adc);
-    debug("\n[logic] complete irq entered phase=%s transfer_count=%lu", logic_capture_phase_name(s_phase),
-          (unsigned long)dma_hw->ch[s_dma_capture].transfer_count);
+    uint64_t ts = time_us_64();
+    debug("\n[logic][%llu us] complete_irq enter phase=%s", (unsigned long long)ts,
+          logic_capture_phase_name(s_phase));
+    if (debug_is_enabled()) {
+        debug_block("\n  cap    tc=%lu busy=%u ra=0x%08lx wa=0x%08lx",
+                    (unsigned long)dma_hw->ch[s_dma_capture].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_capture].ctrl_trig >> 24) & 1u,
+                    (unsigned long)dma_hw->ch[s_dma_capture].read_addr,
+                    (unsigned long)dma_hw->ch[s_dma_capture].write_addr);
+        debug_block("\n  reload tc=%lu busy=%u ra=0x%08lx wa=0x%08lx",
+                    (unsigned long)dma_hw->ch[s_dma_capture_reload].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_capture_reload].ctrl_trig >> 24) & 1u,
+                    (unsigned long)dma_hw->ch[s_dma_capture_reload].read_addr,
+                    (unsigned long)dma_hw->ch[s_dma_capture_reload].write_addr);
+        debug_block("\n  halt   tc=%lu busy=%u ra=0x%08lx wa=0x%08lx",
+                    (unsigned long)dma_hw->ch[s_dma_halt_capture].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_halt_capture].ctrl_trig >> 24) & 1u,
+                    (unsigned long)dma_hw->ch[s_dma_halt_capture].read_addr,
+                    (unsigned long)dma_hw->ch[s_dma_halt_capture].write_addr);
+        debug_block("\n  init   tc=%lu busy=%u ra=0x%08lx wa=0x%08lx",
+                    (unsigned long)dma_hw->ch[s_dma_init_counter].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_init_counter].ctrl_trig >> 24) & 1u,
+                    (unsigned long)dma_hw->ch[s_dma_init_counter].read_addr,
+                    (unsigned long)dma_hw->ch[s_dma_init_counter].write_addr);
+        debug_block("\n  dma_disable_adc=%u pio0_ctrl=0x%08lx pio0_fstat=0x%08lx",
+                    s_dma_disable_adc,
+                    (unsigned long)pio0->ctrl,
+                    (unsigned long)pio0->fstat);
+    }
     if (s_phase != LOGIC_CAPTURE_PHASE_CAPTURING) {
-        debug("\n[logic] complete ignored early phase=%s", logic_capture_phase_name(s_phase));
+        debug("\n[logic] complete_irq ignored early phase=%s", logic_capture_phase_name(s_phase));
         return;
     }
 
@@ -243,10 +316,45 @@ static inline void logic_capture_complete_handler(void) {
         s_first_sample += LOGIC_BUFFER_SIZE;
     }
 
+    debug("\n[logic][%llu us] complete_irq scheduling cleanup first_sample=%d",
+          (unsigned long long)time_us_64(), s_first_sample);
+    if (debug_is_enabled()) {
+        debug_block("\n  cap    tc=%lu busy=%u wa=0x%08lx",
+                    (unsigned long)dma_hw->ch[s_dma_capture].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_capture].ctrl_trig >> 24) & 1u,
+                    (unsigned long)dma_hw->ch[s_dma_capture].write_addr);
+        debug_block("\n  reload tc=%lu busy=%u",
+                    (unsigned long)dma_hw->ch[s_dma_capture_reload].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_capture_reload].ctrl_trig >> 24) & 1u);
+        debug_block("\n  halt   tc=%lu busy=%u",
+                    (unsigned long)dma_hw->ch[s_dma_halt_capture].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_halt_capture].ctrl_trig >> 24) & 1u);
+        debug_block("\n  init   tc=%lu busy=%u",
+                    (unsigned long)dma_hw->ch[s_dma_init_counter].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_init_counter].ctrl_trig >> 24) & 1u);
+    }
+
     add_alarm_in_us(100, cleanup_callback, NULL, false);
 }
 
 static inline void logic_capture_stop_hardware(void) {
+    debug("\n[logic][%llu us] stop_hardware begin phase=%s",
+          (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase));
+    if (debug_is_enabled()) {
+        debug_block("\n  cap    tc=%lu busy=%u",
+                    (unsigned long)dma_hw->ch[s_dma_capture].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_capture].ctrl_trig >> 24) & 1u);
+        debug_block("\n  reload tc=%lu busy=%u",
+                    (unsigned long)dma_hw->ch[s_dma_capture_reload].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_capture_reload].ctrl_trig >> 24) & 1u);
+        debug_block("\n  halt   tc=%lu busy=%u",
+                    (unsigned long)dma_hw->ch[s_dma_halt_capture].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_halt_capture].ctrl_trig >> 24) & 1u);
+        debug_block("\n  init   tc=%lu busy=%u",
+                    (unsigned long)dma_hw->ch[s_dma_init_counter].transfer_count,
+                    (unsigned)(dma_hw->ch[s_dma_init_counter].ctrl_trig >> 24) & 1u);
+    }
+
     pio_set_sm_mask_enabled(pio0, (1u << s_sm_capture) | (1u << s_sm_mux) | (1u << s_sm_counter), false);
     pio_set_sm_mask_enabled(pio1, s_sm_trigger_mask, false);
     pio_set_irq0_source_enabled(pio0, (enum pio_interrupt_source)pis_interrupt0, false);
@@ -270,6 +378,19 @@ static inline void logic_capture_stop_hardware(void) {
     pio_sm_clear_fifos(pio0, s_sm_counter);
     pio_clear_instruction_memory(pio0);
     pio_clear_instruction_memory(pio1);
+
+    debug("\n[logic][%llu us] stop_hardware done",
+          (unsigned long long)time_us_64());
+    if (debug_is_enabled()) {
+        debug_block("\n  cap    busy=%u",
+                    (unsigned)(dma_hw->ch[s_dma_capture].ctrl_trig >> 24) & 1u);
+        debug_block("\n  reload busy=%u",
+                    (unsigned)(dma_hw->ch[s_dma_capture_reload].ctrl_trig >> 24) & 1u);
+        debug_block("\n  halt   busy=%u",
+                    (unsigned)(dma_hw->ch[s_dma_halt_capture].ctrl_trig >> 24) & 1u);
+        debug_block("\n  init   busy=%u",
+                    (unsigned)(dma_hw->ch[s_dma_init_counter].ctrl_trig >> 24) & 1u);
+    }
 }
 
 static void logic_capture_configure_inputs(void) {
@@ -299,8 +420,12 @@ static uint16_t logic_capture_get_sample_index(int index) {
 }
 
 void logic_capture_reset(void) {
-    debug("\n[logic] reset begin phase=%s total_samples=%lu read_offset=%lu", logic_capture_phase_name(s_phase),
+    debug("\n[logic][%llu us] reset begin phase=%s total_samples=%lu read_offset=%lu",
+          (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase),
           (unsigned long)s_logic_capture_config.total_samples, (unsigned long)s_capture_read_offset_bytes);
+    if (debug_is_enabled()) {
+        logic_capture_debug_dma_state("RESET-BEFORE");
+    }
 
     if (clock_get_hz(clk_sys) != 100000000u) {
         set_sys_clock_khz(100000u, true);
@@ -326,7 +451,11 @@ void logic_capture_reset(void) {
     s_activation_armed = false;
     s_phase = LOGIC_CAPTURE_PHASE_DISARMED;
 
-    debug("\n[logic] reset done phase=%s", logic_capture_phase_name(s_phase));
+    debug("\n[logic][%llu us] reset done phase=%s",
+          (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase));
+    if (debug_is_enabled()) {
+        logic_capture_debug_dma_state("RESET-AFTER");
+    }
 }
 
 bool logic_capture_prepare(const capture_config_t *config, complete_handler_t handler,
@@ -534,6 +663,15 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
     debug_block("\n[logic] prepare armed phase=%s samples=%u rate=%u pre=%u post=%u triggers=%u",
                 logic_capture_phase_name(s_phase), s_pre_trigger_samples + s_post_trigger_samples, s_rate,
                 s_pre_trigger_samples, s_post_trigger_samples, s_trigger_count);
+    debug_block("\n  dma_capture=%u dma_reload=%u dma_init_ctr=%u dma_halt=%u dma_disable_adc=%u",
+                s_dma_capture, s_dma_capture_reload, s_dma_init_counter, s_dma_halt_capture, s_dma_disable_adc);
+    debug_block("\n  pio0_enable_mask=0x%08lx pio1_enable_mask=0x%08lx",
+                (unsigned long)activation->pio0_enable_mask, (unsigned long)activation->pio1_enable_mask);
+    debug_block("\n  cap_tc=%lu reload_tc=%lu halt_tc=%lu init_tc=%lu",
+                (unsigned long)dma_hw->ch[s_dma_capture].transfer_count,
+                (unsigned long)dma_hw->ch[s_dma_capture_reload].transfer_count,
+                (unsigned long)dma_hw->ch[s_dma_halt_capture].transfer_count,
+                (unsigned long)dma_hw->ch[s_dma_init_counter].transfer_count);
 
     return true;
 }
@@ -549,6 +687,12 @@ bool logic_capture_arm(void) {
         return false;
     }
 
+    debug("\n[logic][%llu us] arm begin phase=%s",
+          (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase));
+    if (debug_is_enabled()) {
+        logic_capture_debug_dma_state("ARM-BEFORE");
+    }
+
     dma_channel_start(s_dma_capture);
     dma_channel_start(s_dma_halt_capture);
 
@@ -561,9 +705,13 @@ bool logic_capture_arm(void) {
 
     s_activation_armed = true;
 
-    debug_block("\n[logic] arm ready phase=%s samples=%u rate=%u pre=%u post=%u triggers=%u",
-                logic_capture_phase_name(s_phase), s_pre_trigger_samples + s_post_trigger_samples, s_rate,
+    debug_block("\n[logic][%llu us] arm ready phase=%s samples=%u rate=%u pre=%u post=%u triggers=%u",
+                (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase),
+                s_pre_trigger_samples + s_post_trigger_samples, s_rate,
                 s_pre_trigger_samples, s_post_trigger_samples, s_trigger_count);
+    if (debug_is_enabled()) {
+        logic_capture_debug_dma_state("ARM-AFTER");
+    }
 
     return true;
 }
@@ -584,6 +732,10 @@ void logic_capture_activate(const logic_capture_activation_t *activation) {
         return;
     }
 
+    debug("\n[logic][%llu us] activate phase=%s pio0_mask=0x%08lx pio1_mask=0x%08lx",
+          (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase),
+          (unsigned long)activation->pio0_enable_mask, (unsigned long)activation->pio1_enable_mask);
+
     pio0->ctrl = activation->pio0_enable_mask;
     if (activation->pio1_enable_mask) {
         pio1->ctrl = activation->pio1_enable_mask;
@@ -591,8 +743,9 @@ void logic_capture_activate(const logic_capture_activation_t *activation) {
 
     logic_capture_mark_capturing();
 
-    debug_block("\n[logic] activate started phase=%s samples=%u rate=%u pre=%u post=%u triggers=%u",
-                logic_capture_phase_name(s_phase), s_pre_trigger_samples + s_post_trigger_samples, s_rate,
+    debug_block("\n[logic][%llu us] activate started phase=%s samples=%u rate=%u pre=%u post=%u triggers=%u",
+                (unsigned long long)time_us_64(), logic_capture_phase_name(s_phase),
+                s_pre_trigger_samples + s_post_trigger_samples, s_rate,
                 s_pre_trigger_samples, s_post_trigger_samples, s_trigger_count);
 }
 
@@ -657,6 +810,49 @@ bool logic_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_
           (unsigned long)s_capture_read_offset_bytes, s_capture_read_offset_bytes < total_bytes ? "yes" : "no");
 
     return true;
+}
+
+void logic_capture_poll_debug(void) {
+    if (!debug_is_enabled()) {
+        return;
+    }
+
+    if (s_phase != LOGIC_CAPTURE_PHASE_CAPTURING || s_triggered_channel >= 0) {
+        return;
+    }
+
+    static uint64_t s_last_poll_us = 0u;
+    uint64_t now = time_us_64();
+
+    if (now - s_last_poll_us < 500000u) {
+        return;
+    }
+    s_last_poll_us = now;
+
+    debug_block("\n[logic][%llu us][WAIT]", (unsigned long long)now);
+    debug_block("\n  phase=%s trig=%d", logic_capture_phase_name(s_phase), s_triggered_channel);
+    debug_block("\n  cap    tc=%lu busy=%u wa=0x%08lx",
+                (unsigned long)dma_hw->ch[s_dma_capture].transfer_count,
+                (unsigned)(dma_hw->ch[s_dma_capture].ctrl_trig >> 24) & 1u,
+                (unsigned long)dma_hw->ch[s_dma_capture].write_addr);
+    debug_block("\n  reload tc=%lu busy=%u",
+                (unsigned long)dma_hw->ch[s_dma_capture_reload].transfer_count,
+                (unsigned)(dma_hw->ch[s_dma_capture_reload].ctrl_trig >> 24) & 1u);
+    debug_block("\n  halt   tc=%lu busy=%u",
+                (unsigned long)dma_hw->ch[s_dma_halt_capture].transfer_count,
+                (unsigned)(dma_hw->ch[s_dma_halt_capture].ctrl_trig >> 24) & 1u);
+    debug_block("\n  init   tc=%lu busy=%u",
+                (unsigned long)dma_hw->ch[s_dma_init_counter].transfer_count,
+                (unsigned)(dma_hw->ch[s_dma_init_counter].ctrl_trig >> 24) & 1u);
+    debug_block("\n  pio0_ctrl=0x%08lx pio0_rxf_capture=%lu pio0_fstat=0x%08lx",
+                (unsigned long)pio0->ctrl,
+                (unsigned long)pio_sm_get_rx_fifo_level(pio0, s_sm_capture),
+                (unsigned long)pio0->fstat);
+    if (s_trigger_count) {
+        debug_block("\n  pio0_mux_rx=%lu pio0_mux_tx=%lu",
+                    (unsigned long)pio_sm_get_rx_fifo_level(pio0, s_sm_mux),
+                    (unsigned long)pio_sm_get_tx_fifo_level(pio0, s_sm_mux));
+    }
 }
 
 capture_state_t logic_capture_get_state(void) {
