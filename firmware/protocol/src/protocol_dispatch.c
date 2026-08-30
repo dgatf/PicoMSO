@@ -282,14 +282,8 @@ static void picomso_fill_capabilities(picomso_capabilities_t *caps) {
 
     caps->capabilities_flags = 0;
 
-#if PICO_RP2040
-    caps->max_samples_logic = 30000u;
-    caps->max_samples_scope = 30000u;
-#elif PICO_RP2350
-    caps->max_samples_logic = 60000u;
-    caps->max_samples_scope = 60000u;
-    caps->capabilities_flags = PICOMSO_CAP_ANALOG_TRIGGER;
-#endif
+    caps->max_samples_logic = LOGIC_CAPTURE_MAX_SAMPLES;
+    caps->max_samples_scope = SCOPE_CAPTURE_MAX_SAMPLES;
 }
 
 picomso_status_t picomso_handle_get_capabilities(const picomso_packet_header_t *hdr, const uint8_t *payload,

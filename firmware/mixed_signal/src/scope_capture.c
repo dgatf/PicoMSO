@@ -61,7 +61,7 @@ static const uint s_dma_capture = 6u;
 static const uint s_dma_capture_reload = 7u;
 static const uint s_dma_disable_adc = 8u;
 static uint s_reload_counter;
-static uint16_t s_sample_buffer[SCOPE_BUFFER_SIZE] __attribute__((aligned(SCOPE_BUFFER_SIZE * sizeof(uint16_t))));
+static uint16_t s_sample_buffer[SCOPE_BUFFER_SIZE];
 
 static volatile uint32_t *s_clk_adc_ctrl = (volatile uint32_t *)(CLOCKS_BASE + CLOCKS_CLK_ADC_CTRL_OFFSET);
 static void (*s_complete_handler)(void) = NULL;
@@ -72,6 +72,7 @@ static uint s_rate;
 static volatile int s_first_sample;
 static scope_sample_width_t s_sample_width = SCOPE_SAMPLE_WIDTH_12;
 static const uint s_adc_disable_mask = ADC_CS_EN_BITS;
+static const uint32_t s_sample_buffer_addr = (uint32_t)s_sample_buffer;
 
 static uint scope_channel_count(uint32_t channels_mask);
 static const char *scope_capture_phase_name(scope_capture_phase_t phase);
@@ -123,10 +124,12 @@ static inline uint16_t scope_capture_get_sample_u8(int index) {
 
     int pos = s_first_sample + index;
 
+    const int buffer_size = (int)(SCOPE_BUFFER_SIZE * 2u);
+
     if (pos < 0) {
-        pos += SCOPE_BUFFER_SIZE;
-    } else if (pos >= (int)SCOPE_BUFFER_SIZE) {
-        pos -= SCOPE_BUFFER_SIZE;
+        pos += buffer_size;
+    } else if (pos >= buffer_size) {
+        pos -= buffer_size;
     }
 
     return (uint16_t)buffer[pos];
@@ -213,18 +216,16 @@ static inline void scope_capture_complete_handler(void) {
     }
 
     {
+        const int buffer_size = (int)s_reload_counter;
         const int total_samples = (int)(s_pre_trigger_samples + s_post_trigger_samples);
-        int pos = (int)SCOPE_BUFFER_SIZE - (int)dma_hw->ch[s_dma_capture].transfer_count;
 
-        /* Convert current DMA write position to first sample of the capture window. */
+        int pos = buffer_size - (int)dma_hw->ch[s_dma_capture].transfer_count;
+
         s_first_sample = pos - total_samples;
 
-        while (s_first_sample < 0) {
-            s_first_sample += (int)SCOPE_BUFFER_SIZE;
-        }
-        while (s_first_sample >= (int)SCOPE_BUFFER_SIZE) {
-            s_first_sample -= (int)SCOPE_BUFFER_SIZE;
-        }
+        while (s_first_sample < 0) s_first_sample += buffer_size;
+
+        while (s_first_sample >= buffer_size) s_first_sample -= buffer_size;
 
         /*
          * Dual-channel mode stores 8-bit interleaved samples:
@@ -236,7 +237,7 @@ static inline void scope_capture_complete_handler(void) {
             if (s_first_sample & 1) {
                 --s_first_sample;
                 if (s_first_sample < 0) {
-                    s_first_sample += (int)SCOPE_BUFFER_SIZE;
+                    s_first_sample += buffer_size;
                 }
             }
         }
@@ -424,7 +425,6 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
 
     s_complete_handler = handler;
     s_scope_capture_config = *config;
-    s_reload_counter = SCOPE_BUFFER_SIZE;
     trigger_gate->dma_disable_adc = s_dma_disable_adc;
     trigger_gate->is_adc_disabled = false;
 
@@ -434,6 +434,7 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
 
     s_sample_width =
         scope_channel_count(s_scope_capture_config.channels) > 1u ? SCOPE_SAMPLE_WIDTH_8 : SCOPE_SAMPLE_WIDTH_12;
+    s_reload_counter = (s_sample_width == SCOPE_SAMPLE_WIDTH_8) ? SCOPE_BUFFER_SIZE * 2u : SCOPE_BUFFER_SIZE;
     s_capture_read_offset_bytes = 0u;
 
     {
@@ -474,11 +475,9 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
         dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_capture);
         if (s_sample_width == SCOPE_SAMPLE_WIDTH_8) {
             channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_8);
-            channel_config_set_ring(&dma_cfg, true, SCOPE_RING_BITS);
             channel_config_set_chain_to(&dma_cfg, s_dma_capture_reload);
         } else {
             channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_16);
-            channel_config_set_ring(&dma_cfg, true, SCOPE_RING_BITS + 1u);
             channel_config_set_chain_to(&dma_cfg, s_dma_capture_reload);
         }
         channel_config_set_write_increment(&dma_cfg, true);
@@ -493,8 +492,8 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
         channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
         channel_config_set_write_increment(&dma_cfg, false);
         channel_config_set_read_increment(&dma_cfg, false);
-        dma_channel_configure(s_dma_capture_reload, &dma_cfg, &dma_hw->ch[s_dma_capture].al1_transfer_count_trig,
-                              &s_reload_counter, 1u, false);
+        dma_channel_configure(s_dma_capture_reload, &dma_cfg, &dma_hw->ch[s_dma_capture].al2_write_addr_trig,
+                              &s_sample_buffer_addr, 1u, false);
     }
 
     // DMA disable adc on complete
