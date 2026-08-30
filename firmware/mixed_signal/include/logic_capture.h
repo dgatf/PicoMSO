@@ -20,12 +20,10 @@ extern "C" {
 #include "types.h"
 
 #if PICO_RP2040
-#define LOGIC_RING_BITS 15u
+#define LOGIC_BUFFER_SIZE 50000u
 #elif PICO_RP2350
-#define LOGIC_RING_BITS 16u
+#define LOGIC_BUFFER_SIZE 100000u
 #endif
-
-#define LOGIC_BUFFER_SIZE (1u << LOGIC_RING_BITS)
 #define LOGIC_CAPTURE_BLOCK_BYTES 64u
 #define LOGIC_CAPTURE_MAX_SAMPLES LOGIC_BUFFER_SIZE
 
@@ -46,6 +44,7 @@ void logic_capture_mark_capturing(void);
 bool logic_capture_start(const capture_config_t *config, complete_handler_t handler);
 capture_state_t logic_capture_get_state(void);
 bool logic_capture_read_block(uint16_t *block_id, uint8_t *data, uint16_t *data_len);
+void logic_capture_poll_debug(void);
 
 #ifdef __cplusplus
 }

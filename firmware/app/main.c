@@ -67,6 +67,7 @@
 #include "debug.h"
 #include "hardware/clocks.h"
 #include "integration.h"
+#include "logic_capture.h"
 #include "pico/stdlib.h"
 #include "types.h"
 #include "usb_transport.h"
@@ -131,6 +132,7 @@ int main(void) {
      */
     while (true) {
         integration_process_one(&integration);
+        logic_capture_poll_debug();
     }
 
     /* Unreachable. */
