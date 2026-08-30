@@ -83,13 +83,15 @@ static volatile int s_triggered_channel;
 static float s_clk_div;
 static uint s_pio_ctrl_halt = 1 << s_sm_counter;
 
-static uint16_t s_sample_buffer[LOGIC_BUFFER_SIZE] __attribute__((aligned(LOGIC_BUFFER_SIZE * sizeof(uint16_t))));
+static uint16_t s_sample_buffer[LOGIC_BUFFER_SIZE];
 
 static pio_sm_config s_pio_config_capture;
 static pio_sm_config s_pio_config_counter;
 static pio_sm_config s_pio_config_mux;
 static pio_sm_config s_pio_config_trigger[LOGIC_CAPTURE_MAX_TRIGGER_COUNT];
 static uint s_dma_disable_adc;
+static bool s_is_adc_disabled;
+static const uint32_t s_sample_buffer_addr = (uint32_t)s_sample_buffer;
 
 static void (*s_complete_handler)(void) = NULL;
 
@@ -359,6 +361,7 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
     s_logic_capture_config.channels = LOGIC_CAPTURE_CHANNEL_COUNT;
     s_capture_read_offset_bytes = 0u;
     s_dma_disable_adc = trigger_gate->dma_disable_adc;
+    s_is_adc_disabled = trigger_gate->is_adc_disabled;
     {
         const uint32_t samples = config->total_samples;
         const uint32_t rate = config->rate;
@@ -434,7 +437,6 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
     {
         dma_channel_config dma_cfg = dma_channel_get_default_config(s_dma_capture);
         channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_16);
-        channel_config_set_ring(&dma_cfg, true, LOGIC_RING_BITS + 1u);
         channel_config_set_write_increment(&dma_cfg, true);
         channel_config_set_read_increment(&dma_cfg, false);
         channel_config_set_dreq(&dma_cfg, pio_get_dreq(pio0, s_sm_capture, false));
@@ -449,8 +451,8 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
         channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
         channel_config_set_write_increment(&dma_cfg, false);
         channel_config_set_read_increment(&dma_cfg, false);
-        dma_channel_configure(s_dma_capture_reload, &dma_cfg, &dma_hw->ch[s_dma_capture].al1_transfer_count_trig,
-                              &s_reload_counter, 1u, false);
+        dma_channel_configure(s_dma_capture_reload, &dma_cfg, &dma_hw->ch[s_dma_capture].al2_write_addr_trig,
+                              &s_sample_buffer_addr, 1u, false);
     }
 
     // DMA halt capture when counter pushes
@@ -460,7 +462,11 @@ bool logic_capture_prepare(const capture_config_t *config, complete_handler_t ha
         channel_config_set_write_increment(&dma_cfg, false);
         channel_config_set_read_increment(&dma_cfg, false);
         channel_config_set_dreq(&dma_cfg, pio_get_dreq(pio0, s_sm_counter, false));
-        channel_config_set_chain_to(&dma_cfg, s_dma_disable_adc);
+        if (trigger_gate->is_adc_disabled) {
+            channel_config_set_chain_to(&dma_cfg, s_dma_init_counter);
+        } else {
+            channel_config_set_chain_to(&dma_cfg, s_dma_disable_adc);
+        }
         dma_channel_configure(s_dma_halt_capture, &dma_cfg, &pio0->ctrl, &s_pio_ctrl_halt, 1u, false);
     }
 
@@ -597,7 +603,7 @@ void logic_capture_activate(const logic_capture_activation_t *activation) {
 }
 
 bool logic_capture_start(const capture_config_t *config, complete_handler_t handler) {
-    capture_trigger_gate_t trigger_gate = {.enabled = false, .dreq = 0u};
+    capture_trigger_gate_t trigger_gate = {.enabled = false, .dreq = 0u, .is_adc_disabled = true};
     logic_capture_activation_t activation = {.pio0_enable_mask = 0u, .pio1_enable_mask = 0u};
 
     if (!logic_capture_prepare(config, handler, &trigger_gate, &activation)) {
