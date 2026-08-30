@@ -62,7 +62,6 @@ jobs:
         uses: actions/attest-build-provenance@v3
         with:
           subject-path: dist/${{ env.FIRMWARE_FILENAME }}
-          github-token: ${{ secrets.TOKEN }}
 
       - name: Write release body
         if: matrix.first

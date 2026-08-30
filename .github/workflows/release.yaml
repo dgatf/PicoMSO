@@ -6,8 +6,8 @@ on:
 
 permissions:
   contents: write
-  pages: write
   id-token: write
+  attestations: write
 
 jobs:
   firmware:
@@ -59,4 +59,3 @@ jobs:
         uses: actions/attest-build-provenance@v3
         with:
           subject-path: dist/${{ env.FIRMWARE_FILENAME }}
-          github-token: ${{ secrets.TOKEN }}
