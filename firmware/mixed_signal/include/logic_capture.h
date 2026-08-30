@@ -19,11 +19,7 @@ extern "C" {
 
 #include "types.h"
 
-#if PICO_RP2040
-#define LOGIC_RING_BITS 15u
-#elif PICO_RP2350
-#define LOGIC_RING_BITS 16u
-#endif
+#define LOGIC_RING_BITS 14u
 
 #define LOGIC_BUFFER_SIZE (1u << LOGIC_RING_BITS)
 #define LOGIC_CAPTURE_BLOCK_BYTES 64u
