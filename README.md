@@ -27,8 +27,8 @@ hardware-level triggering using PIO and DMA.
 - **Channels:** 16 digital
 - **Max sample rate:** up to **200 MHz**
 - **Capture depth:**
-  - RP2040: up to **30 ksamples**
-  - RP2350: up to **60 ksamples**
+  - RP2040: up to **50 ksamples**
+  - RP2350: up to **100 ksamples**
 - **Triggering:** level and edge, multi-trigger AND (hardware, real-time)
 
 ### Oscilloscope
@@ -37,7 +37,10 @@ hardware-level triggering using PIO and DMA.
   - 1 × 12-bit
   - 2 × 8-bit (simultaneous)
 - **Max sample rate:** up to **2 MS/s**
-- **Pre-trigger:** hardware circular buffer
+- **Capture depth:**
+  - RP2040: up to **50 ksamples per channel**
+  - RP2350: up to **100 ksamples per channel**
+- **Pre-trigger:** continuous DMA capture with buffer reload
 
 ---
 
