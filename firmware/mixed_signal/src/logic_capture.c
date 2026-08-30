@@ -231,46 +231,9 @@ static int64_t cleanup_callback(alarm_id_t id, void *user_data) {
 
 static inline void logic_capture_complete_handler(void) {
     pio_interrupt_clear(pio0, 1u);
-<<<<<<< HEAD
     dma_channel_start(s_dma_disable_adc);
     debug("\n[logic] complete irq entered phase=%s transfer_count=%lu", logic_capture_phase_name(s_phase),
           (unsigned long)dma_hw->ch[s_dma_capture].transfer_count);
-=======
-    if (s_is_adc_disabled) {
-        dma_channel_start(s_dma_init_counter);
-    } else {
-        dma_channel_start(s_dma_disable_adc);
-    }
-    uint64_t ts = time_us_64();
-    debug("\n[logic][%llu us] complete_irq enter phase=%s", (unsigned long long)ts,
-          logic_capture_phase_name(s_phase));
-    if (debug_is_enabled()) {
-        debug_block("\n  cap    tc=%lu busy=%u ra=0x%08lx wa=0x%08lx",
-                    (unsigned long)dma_hw->ch[s_dma_capture].transfer_count,
-                    (unsigned)(dma_hw->ch[s_dma_capture].ctrl_trig >> 24) & 1u,
-                    (unsigned long)dma_hw->ch[s_dma_capture].read_addr,
-                    (unsigned long)dma_hw->ch[s_dma_capture].write_addr);
-        debug_block("\n  reload tc=%lu busy=%u ra=0x%08lx wa=0x%08lx",
-                    (unsigned long)dma_hw->ch[s_dma_capture_reload].transfer_count,
-                    (unsigned)(dma_hw->ch[s_dma_capture_reload].ctrl_trig >> 24) & 1u,
-                    (unsigned long)dma_hw->ch[s_dma_capture_reload].read_addr,
-                    (unsigned long)dma_hw->ch[s_dma_capture_reload].write_addr);
-        debug_block("\n  halt   tc=%lu busy=%u ra=0x%08lx wa=0x%08lx",
-                    (unsigned long)dma_hw->ch[s_dma_halt_capture].transfer_count,
-                    (unsigned)(dma_hw->ch[s_dma_halt_capture].ctrl_trig >> 24) & 1u,
-                    (unsigned long)dma_hw->ch[s_dma_halt_capture].read_addr,
-                    (unsigned long)dma_hw->ch[s_dma_halt_capture].write_addr);
-        debug_block("\n  init   tc=%lu busy=%u ra=0x%08lx wa=0x%08lx",
-                    (unsigned long)dma_hw->ch[s_dma_init_counter].transfer_count,
-                    (unsigned)(dma_hw->ch[s_dma_init_counter].ctrl_trig >> 24) & 1u,
-                    (unsigned long)dma_hw->ch[s_dma_init_counter].read_addr,
-                    (unsigned long)dma_hw->ch[s_dma_init_counter].write_addr);
-        debug_block("\n  dma_disable_adc=%u pio0_ctrl=0x%08lx pio0_fstat=0x%08lx",
-                    s_dma_disable_adc,
-                    (unsigned long)pio0->ctrl,
-                    (unsigned long)pio0->fstat);
-    }
->>>>>>> 4ac67d2 (Fix buffer rings size)
     if (s_phase != LOGIC_CAPTURE_PHASE_CAPTURING) {
         debug("\n[logic] complete ignored early phase=%s", logic_capture_phase_name(s_phase));
         return;
