@@ -426,6 +426,7 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
     s_scope_capture_config = *config;
     s_reload_counter = SCOPE_BUFFER_SIZE;
     trigger_gate->dma_disable_adc = s_dma_disable_adc;
+    trigger_gate->is_adc_disabled = false;
 
     if (s_scope_capture_config.channels == 0u) {
         s_scope_capture_config.channels = 1u;

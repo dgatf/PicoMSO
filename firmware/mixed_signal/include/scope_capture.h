@@ -19,11 +19,7 @@ extern "C" {
 
 #include "types.h"
 
-#if PICO_RP2040
-#define SCOPE_RING_BITS 15u
-#elif PICO_RP2350
-#define SCOPE_RING_BITS 16u
-#endif
+#define SCOPE_RING_BITS 14u
 
 #define SCOPE_BUFFER_SIZE (1u << SCOPE_RING_BITS)
 #define SCOPE_CAPTURE_BLOCK_BYTES 64u
