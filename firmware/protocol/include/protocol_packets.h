@@ -95,8 +95,8 @@ typedef struct {
 
 /**
  * analog_channels is a bitmask of ADC inputs to enable for scope capture.
- * Bit 0 = ADC input 0 (GPIO 26), bit 1 = ADC input 1 (GPIO 27),
- * bit 2 = ADC input 2 (GPIO 28).  Only bits 0-2 are valid.
+ * Bit 0 = ADC input 0 (GPIO 26), bit 1 = ADC input 1 (GPIO 27).
+ * Only bits 0-1 are valid.
  * A value of 0x00 is treated as 0x01 (ADC input 0 only) for backward
  * compatibility.  The firmware round-robins the selected inputs in
  * ascending index order; total_samples is the total interleaved count
