@@ -183,8 +183,6 @@ static void scope_capture_configure_adc(void) {
     adc_init();
     adc_gpio_init(SCOPE_CAPTURE_ADC_GPIO);
     adc_gpio_init(SCOPE_CAPTURE_ADC_GPIO + 1u);
-    adc_gpio_init(SCOPE_CAPTURE_ADC_GPIO + 2u);
-
     gpio_init(GPIO_COUPLING_CH1_DC);
     gpio_set_dir(GPIO_COUPLING_CH1_DC, GPIO_OUT);
     gpio_put(GPIO_COUPLING_CH1_DC, false);

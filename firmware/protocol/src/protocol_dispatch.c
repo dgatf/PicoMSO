@@ -471,7 +471,7 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     }
 
     if ((active_streams & PICOMSO_STREAM_SCOPE) != 0u) {
-        if ((analog_ch & ~0x07u) != 0u) {
+        if ((analog_ch & ~0x03u) != 0u) {
             debug("\n[protocol] REQUEST_CAPTURE rejected reason=invalid_analog_channels analog_ch=0x%02x",
                   (unsigned)analog_ch);
             picomso_write_error(hdr->seq, PICOMSO_STATUS_ERR_BAD_LEN, "invalid analog_channels bitmask", resp);
@@ -505,7 +505,7 @@ picomso_status_t picomso_handle_request_capture(const picomso_packet_header_t *h
     /*
      * For logic captures, channels is the parallel input count (16).
      * For scope captures, channels is the ADC input bitmask derived from
-     * analog_channels (bit 0 = ADC0, bit 1 = ADC1, bit 2 = ADC2).  The
+     * analog_channels (bit 0 = ADC0, bit 1 = ADC1).  The
      * firmware round-robins only the selected inputs in ascending index order.
      * The interleaved sample stream is demultiplexed by the host driver.
      */
