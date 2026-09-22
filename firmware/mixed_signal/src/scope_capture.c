@@ -75,6 +75,7 @@ static const uint s_adc_disable_mask = ADC_CS_EN_BITS;
 static const uint32_t s_sample_buffer_addr = (uint32_t)s_sample_buffer;
 
 static uint scope_channel_count(uint32_t channels_mask);
+static uint scope_first_channel(uint32_t channels_mask);
 static const char *scope_capture_phase_name(scope_capture_phase_t phase);
 static inline uint16_t scope_capture_get_sample_u8(int index);
 static inline uint16_t scope_capture_get_sample_u16(int index);
@@ -95,6 +96,16 @@ static uint scope_channel_count(uint32_t channels_mask) {
     }
 
     return count;
+}
+
+static uint scope_first_channel(uint32_t channels_mask) {
+    for (uint i = 0u; i < 32u; ++i) {
+        if (channels_mask & (1u << i)) {
+            return i;
+        }
+    }
+
+    return 0u;
 }
 
 static const char *scope_capture_phase_name(scope_capture_phase_t phase) {
@@ -509,6 +520,7 @@ bool scope_capture_prepare(const capture_config_t *config, complete_handler_t ha
                               &s_adc_disable_mask, 1u, false);
     }
 
+    adc_select_input(scope_first_channel(s_scope_capture_config.channels));
     adc_set_round_robin(s_scope_capture_config.channels);
 
     s_phase = SCOPE_CAPTURE_PHASE_ARMED;
